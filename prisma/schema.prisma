@@ -1,0 +1,95 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  password      String?   @db.Text // ← ハッシュ保存前提で長さ確保
+  emailVerified DateTime?
+  image         String?
+
+  accounts      Account[]
+  sessions      Session[]
+  posts         Post[]
+
+  createdAt     DateTime  @default(now()) // ← 監査ログ
+  updatedAt     DateTime  @updatedAt
+}
+
+model Post {
+  id        Int      @id @default(autoincrement())
+  title     String
+  content   String
+  published Boolean  @default(false)
+
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tags      Tag[]  
+
+  @@index([authorId]) // ← パフォーマンス + DoS耐性
+  @@index([authorId, updatedAt])
+  @@index([authorId, createdAt])
+}
+
+model Tag {
+  id    Int    @id @default(autoincrement())
+  name  String @unique // タグ名は重複しないようにする
+  posts Post[] // 1つのタグは複数の投稿に紐づく
+}
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+
+  type               String
+  provider           String
+  providerAccountId  String
+
+  refresh_token      String? @db.Text
+  access_token       String? @db.Text
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String? @db.Text
+  session_state      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([provider, providerAccountId])
+  @@index([userId]) // ← クエリ最適化
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expires]) // ← 期限切れ削除高速化
+}
+
+model VerificationToken {
+  identifier String
+  token      String   // ← ハッシュ保存前提（重要）
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@index([expires]) // ← 期限切れ削除用
+}

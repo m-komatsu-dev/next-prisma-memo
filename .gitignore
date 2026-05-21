@@ -1,0 +1,41 @@
+# dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+build/
+
+# production
+dist/
+
+# environment variables
+.env
+.env*.local
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Prisma generated clients
+src/generated/
+app/generated/
+app/prisma/
+
+# Vercel
+.vercel/
+
+# OS and editor files
+.DS_Store
+*.pem
+.vscode/
+.idea/
+
+# OpenAI Codex
+.agents/
