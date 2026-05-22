@@ -59,12 +59,23 @@ export function getPublicErrorMessage(error: unknown, fallbackMessage: string) {
       return "対象のメモが見つからないか、操作する権限がありません。";
     }
 
-    if (error.code === "P2002") {
-      return "既に登録されているデータです。";
-    }
+    if (error.code === "P2002") return fallbackMessage;
   }
 
   return fallbackMessage;
+}
+
+export function isRedirectError(error: unknown) {
+  if (error instanceof Error && error.message.includes("NEXT_REDIRECT")) {
+    return true;
+  }
+
+  if (typeof error !== "object" || error === null || !("digest" in error)) {
+    return false;
+  }
+
+  const digest = (error as { digest?: unknown }).digest;
+  return typeof digest === "string" && digest.startsWith("NEXT_REDIRECT");
 }
 
 export function throwLoggedActionError(

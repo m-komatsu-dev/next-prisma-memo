@@ -3,7 +3,11 @@
 
 import { auth } from "@/auth";
 import { logServerError } from "@/lib/server-errors";
-import { aiContentRequestSchema, getFirstZodErrorMessage } from "@/lib/zod";
+import {
+  aiContentRequestSchema,
+  aiGeneratedResultSchema,
+  getFirstZodErrorMessage,
+} from "@/lib/zod";
 import { GoogleGenAI, Type } from "@google/genai";
 
 export type AiMode = "summarize" | "title" | "tags" | "rewrite";
@@ -104,7 +108,12 @@ export async function generateAiContent(content: string, mode: AiMode): Promise<
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return { success: false, result: "GEMINI_API_KEY が設定されていません。" };
+    logServerError(new Error("Missing GEMINI_API_KEY"), {
+      action: "generateAiContent",
+      userId: session.user.id,
+      details: { reason: "missingApiKey" },
+    });
+    return { success: false, result: "AI処理を利用できません。" };
   }
 
   const validatedFields = aiContentRequestSchema.safeParse({ content, mode });
@@ -141,12 +150,13 @@ export async function generateAiContent(content: string, mode: AiMode): Promise<
       return { success: false, result: "AIから結果が返りませんでした。" };
     }
 
-    const result = config.pick(JSON.parse(text)).trim();
-    if (!result) {
+    const pickedResult = config.pick(JSON.parse(text));
+    const validatedResult = aiGeneratedResultSchema.safeParse(pickedResult);
+    if (!validatedResult.success) {
       return { success: false, result: "AIの結果を読み取れませんでした。" };
     }
 
-    return { success: true, result };
+    return { success: true, result: validatedResult.data };
   } catch (error) {
     logServerError(error, {
       action: "generateAiContent",

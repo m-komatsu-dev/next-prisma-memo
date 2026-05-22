@@ -1,4 +1,5 @@
 import { auth, signOut } from "@/auth";
+import { isRedirectError, logServerError } from "@/lib/server-errors";
 import Link from "next/link";
 
 export default async function Navbar() {
@@ -22,7 +23,19 @@ export default async function Navbar() {
                 <form
                   action={async () => {
                     "use server";
-                    await signOut({ redirectTo: "/" });
+                    try {
+                      await signOut({ redirectTo: "/" });
+                    } catch (error) {
+                      if (isRedirectError(error)) {
+                        throw error;
+                      }
+
+                      logServerError(error, {
+                        action: "navbarSignOut",
+                        userId: session.user?.id,
+                      });
+                      throw new Error("ログアウト処理に失敗しました。");
+                    }
                   }}
                 >
                   <button className="nav-button" type="submit">

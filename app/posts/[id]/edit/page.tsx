@@ -1,7 +1,8 @@
 import { auth } from "@/auth";
 import PostForm from "@/components/post-form";
-import { postEditorSelect } from "@/lib/post-selects";
+import { postEditorSelect, type PostEditorPost } from "@/lib/post-selects";
 import { prisma } from "@/lib/prisma";
+import { logServerError } from "@/lib/server-errors";
 import { postIdValueSchema } from "@/lib/zod";
 import { notFound, redirect } from "next/navigation";
 import { autoSaveEditPost, saveEditPost } from "./actions";
@@ -14,10 +15,21 @@ export default async function EditPost({ params }: { params: Promise<{ id: strin
   if (!session?.user?.id) redirect("/");
   if (!validatedPostId.success) notFound();
 
-  const post = await prisma.post.findUnique({
-    where: { id: validatedPostId.data, authorId: session.user.id },
-    select: postEditorSelect,
-  });
+  let post: PostEditorPost | null = null;
+
+  try {
+    post = await prisma.post.findFirst({
+      where: { id: validatedPostId.data, authorId: session.user.id },
+      select: postEditorSelect,
+    });
+  } catch (error) {
+    logServerError(error, {
+      action: "loadPostEditor",
+      userId: session.user.id,
+      postId: validatedPostId.data,
+    });
+    throw new Error("メモの取得に失敗しました。");
+  }
 
   if (!post) notFound();
 

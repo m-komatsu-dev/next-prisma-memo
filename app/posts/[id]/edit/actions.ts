@@ -1,76 +1,45 @@
-// このファイルの関数をサーバー側で実行する Server Action として扱う指定です。
 "use server";
 
-// データベースを操作するための Prisma Client を読み込みます。
 import { prisma } from "@/lib/prisma";
-// 現在ログインしているユーザー情報を取得するための auth 関数を読み込みます。
 import { auth } from "@/auth";
-// 入力されたタグを、既存タグへの接続または新規作成用の形に変換する関数を読み込みます。
-import { buildTagsConnectOrCreate } from "@/lib/post-tags";
-// サーバーエラーを扱いやすくするための関数群を読み込みます。
-import {
-  // ユーザーに見せても安全なエラーメッセージを作る関数です。
-  getPublicErrorMessage,
-  // サーバー側のログに詳しいエラー情報を残す関数です。
-  logServerError,
-  // エラーをログに残してから、画面側へ例外として投げる関数です。
-  throwLoggedActionError,
+import { buildTagsConnectOrCreate } from "@/lib/post-tags";// 入力されたタグを、既存タグへの接続または新規作成用の形に変換する関数を読み込みます。
+import {  
+  getPublicErrorMessage,// ユーザーに見せても安全なエラーメッセージを作る関数です。
+  logServerError,// サーバー側のログに詳しいエラー情報を残す関数です。
+  throwLoggedActionError,// エラーをログに残してから、画面側へ例外として投げる関数です。
 } from "@/lib/server-errors";
-// 入力値の検証に使う Zod スキーマや型を読み込みます。
 import {
-  // Zod の検証エラーから最初のメッセージだけを取り出す関数です。
-  getFirstZodErrorMessage,
-  // 自動保存用データを検証するスキーマです。
-  postDraftPayloadSchema,
-  // 通常保存用データを検証するスキーマです。
-  postSavePayloadSchema,
-  // 投稿 ID が正しい値か検証するスキーマです。
-  postIdValueSchema,
-  // 自動保存用データの TypeScript の型です。
-  type PostDraftPayloadInput,
-  // 通常保存用データの TypeScript の型です。
-  type PostSavePayloadInput,
+  getFirstZodErrorMessage,// Zod の検証エラーから最初のメッセージだけを取り出す関数です。
+  postDraftPayloadSchema,  // 自動保存用データを検証するスキーマです。
+  postSavePayloadSchema,  // 通常保存用データを検証するスキーマです。
+  postIdValueSchema,  // 投稿 ID が正しい値か検証するスキーマです。
+  type PostDraftPayloadInput,  // 自動保存用データの TypeScript の型です。
+  type PostSavePayloadInput,  // 通常保存用データの TypeScript の型です。
 } from "@/lib/zod";
-// Next.js のキャッシュを更新し、古い画面が表示され続けないようにする関数です。
 import { revalidatePath } from "next/cache";
-// 処理後に別ページへ移動させるための関数です。
 import { redirect } from "next/navigation";
 
 // 編集画面で、ユーザーが入力中の内容を下書きとして自動保存する関数です。
 export async function autoSaveEditPost(data: PostDraftPayloadInput) {
-  // 現在のログイン状態を取得します。
   const session = await auth();
-  // ログインしていない場合は、保存せずに失敗結果を返します。
   if (!session?.user?.id) return { success: false, message: "ログインが必要です。" };
 
-  // 受け取ったデータが、自動保存に必要な形式として正しいか検証します。
-  const validatedFields = postDraftPayloadSchema.safeParse(data);
-  // 検証に失敗した場合は、データベースを触らずにエラーメッセージを返します。
+  const validatedFields = postDraftPayloadSchema.safeParse(data);// 受け取ったデータが、自動保存に必要な形式として正しいか検証します。
   if (!validatedFields.success) {
-    // 画面側で扱いやすいように、成功/失敗とメッセージをセットで返します。
     return {
-      // success が false なので、この処理は失敗したことを表します。
       success: false,
-      // Zod のエラーから、ユーザーに見せる最初のエラーメッセージを入れます。
-      message: getFirstZodErrorMessage(validatedFields.error),
+      message: getFirstZodErrorMessage(validatedFields.error),// Zod のエラーから、ユーザーに見せる最初のエラーメッセージを入れます。
     };
   }
 
-  // 検証に成功した、安全に使えるデータを payload として取り出します。
-  const payload = validatedFields.data;
-  // 更新する投稿 ID がなければ、どのメモを更新するか分からないので失敗を返します。
-  if (!payload.id) return { success: false, message: "更新対象のメモが見つかりません。" };
+  const payload = validatedFields.data;// 検証に成功した、安全に使えるデータを payload として取り出します。
+  if (!payload.id) return { success: false, message: "更新対象のメモが見つかりません。" };// 更新する投稿 ID がなければ、どのメモを更新するか分からないので失敗を返します。
 
-  // 入力されたタグ文字列を、Prisma の connectOrCreate で使える形に変換します。
-  const tagsData = buildTagsConnectOrCreate(payload.tags);
+  const tagsData = buildTagsConnectOrCreate(payload.tags);  // 入力されたタグ文字列を、Prisma の connectOrCreate で使える形に変換します。
 
-  // データベース更新でエラーが起きる可能性があるため、try/catch で囲みます。
   try {
-    // 条件に合う投稿をデータベース上で更新します。
     await prisma.post.update({
-      // 更新対象は、投稿 ID とログイン中ユーザーの ID が両方一致する投稿です。
       where: { id: payload.id, authorId: session.user.id },
-      // ここに書いた内容で投稿を更新します。
       data: {
         // タイトルは前後の空白を消し、空なら「無題の下書き」にします。
         title: payload.title.trim() || "無題の下書き",

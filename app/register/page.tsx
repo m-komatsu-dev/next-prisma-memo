@@ -1,8 +1,7 @@
-import { Prisma } from "@/app/generated/prisma";
 import { signIn } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { logServerError } from "@/lib/server-errors";
-import { registerSchema } from "@/lib/zod";
+import { isRedirectError, logServerError } from "@/lib/server-errors";
+import { registerSchema, termsAcceptedFormSchema } from "@/lib/zod";
 import bcrypt from "bcrypt";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -44,10 +43,10 @@ export default function RegisterPage() {
       };
     }
 
-    const { name, email, password } = validatedFields.data;
-    const hashedPassword = await bcrypt.hash(password, 10);
-
     try {
+      const { name, email, password } = validatedFields.data;
+      const hashedPassword = await bcrypt.hash(password, 10);
+
       await prisma.user.create({
         data: {
           name,
@@ -61,15 +60,6 @@ export default function RegisterPage() {
         action: "registerUser",
         details: { provider: "credentials" },
       });
-
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        return {
-          formError: "このメールアドレスは既に登録されています。",
-          fieldErrors: {
-            email: "別のメールアドレスをお試しください。",
-          },
-        };
-      }
 
       return {
         formError: "登録処理に失敗しました。時間をおいて再度お試しください。",
@@ -85,11 +75,28 @@ export default function RegisterPage() {
   ): Promise<SocialRegisterActionState> {
     "use server";
 
-    if (formData.get("termsAccepted") !== "on") {
+    const validatedFields = termsAcceptedFormSchema.safeParse(
+      Object.fromEntries(formData.entries()),
+    );
+
+    if (!validatedFields.success) {
       return { formError: "利用規約への同意が必要です。" };
     }
 
-    await signIn("google");
+    try {
+      await signIn("google");
+    } catch (error) {
+      if (isRedirectError(error)) {
+        throw error;
+      }
+
+      logServerError(error, {
+        action: "registerWithGoogle",
+        details: { provider: "google" },
+      });
+      return { formError: "登録処理に失敗しました。" };
+    }
+
     return initialSocialState;
   }
 
@@ -99,11 +106,28 @@ export default function RegisterPage() {
   ): Promise<SocialRegisterActionState> {
     "use server";
 
-    if (formData.get("termsAccepted") !== "on") {
+    const validatedFields = termsAcceptedFormSchema.safeParse(
+      Object.fromEntries(formData.entries()),
+    );
+
+    if (!validatedFields.success) {
       return { formError: "利用規約への同意が必要です。" };
     }
 
-    await signIn("github");
+    try {
+      await signIn("github");
+    } catch (error) {
+      if (isRedirectError(error)) {
+        throw error;
+      }
+
+      logServerError(error, {
+        action: "registerWithGithub",
+        details: { provider: "github" },
+      });
+      return { formError: "登録処理に失敗しました。" };
+    }
+
     return initialSocialState;
   }
 

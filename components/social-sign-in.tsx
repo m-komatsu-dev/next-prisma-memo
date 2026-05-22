@@ -1,11 +1,24 @@
 import { signIn } from "@/auth";
+import { isRedirectError, logServerError } from "@/lib/server-errors";
 
 export function SignInWithGoogle() {
   return (
     <form
       action={async () => {
         "use server";
-        await signIn("google");
+        try {
+          await signIn("google");
+        } catch (error) {
+          if (isRedirectError(error)) {
+            throw error;
+          }
+
+          logServerError(error, {
+            action: "signInWithGoogle",
+            details: { provider: "google" },
+          });
+          throw new Error("ログイン処理に失敗しました。");
+        }
       }}
     >
       <button type="submit" className="button button-social">
@@ -23,7 +36,19 @@ export function SignInWithGithub() {
     <form
       action={async () => {
         "use server";
-        await signIn("github");
+        try {
+          await signIn("github");
+        } catch (error) {
+          if (isRedirectError(error)) {
+            throw error;
+          }
+
+          logServerError(error, {
+            action: "signInWithGithub",
+            details: { provider: "github" },
+          });
+          throw new Error("ログイン処理に失敗しました。");
+        }
       }}
     >
       <button type="submit" className="button button-social button-social-dark">

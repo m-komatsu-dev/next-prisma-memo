@@ -2,12 +2,25 @@ import { z } from "zod";
 
 const DANGEROUS_SCRIPT_PATTERN =
   /<\s*\/?\s*script\b|<\s*(iframe|object|embed|svg|link|meta)\b|javascript\s*:|data\s*:\s*text\/html|\bon[a-z]+\s*=|srcdoc\s*=/i;// 危険なスクリプト文字列のパターン。これには、scriptタグ、iframe/object/embed/svg/link/metaタグ、javascript:やdata:スキーム、イベントハンドラ属性、srcdoc属性などが含まれます。
+const DISALLOWED_CONTROL_CHAR_PATTERN =
+  /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
+const OBFUSCATION_REMOVAL_PATTERN = /[\u0000-\u001F\u007F\s]+/g;
 
 const TAG_NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}\s_-]{0,29}$/u;// タグは30文字以内で、先頭は英数字、記号はハイフンとアンダースコアのみ使用可能
 const MAX_POST_ID = 2_147_483_647;// 32-bit signed integerの最大値
 
 function doesNotContainDangerousScript(value: string) {
-  return !DANGEROUS_SCRIPT_PATTERN.test(value);
+  const normalized = value.normalize("NFKC");
+  const compacted = normalized.replace(OBFUSCATION_REMOVAL_PATTERN, "");
+
+  return (
+    !DANGEROUS_SCRIPT_PATTERN.test(normalized) &&
+    !DANGEROUS_SCRIPT_PATTERN.test(compacted)
+  );
+}
+
+function doesNotContainDisallowedControlChars(value: string) {
+  return !DISALLOWED_CONTROL_CHAR_PATTERN.test(value);
 }
 
 function safeString(fieldName: string, maxLength: number) {
@@ -17,12 +30,16 @@ function safeString(fieldName: string, maxLength: number) {
     })
     .max(maxLength, `${fieldName}は${maxLength}文字以内で入力してください。`)
     .refine(
+      doesNotContainDisallowedControlChars,
+      `${fieldName}に使用できない制御文字が含まれています。`,
+    )
+    .refine(
       doesNotContainDangerousScript,
       `${fieldName}に使用できないスクリプト文字列が含まれています。`,
     );
 }
 
-export const postIdValueSchema = z.coerce
+const postIdNumberSchema = z
   .number({
     error: "メモIDの形式が正しくありません。",
   })
@@ -30,9 +47,21 @@ export const postIdValueSchema = z.coerce
   .positive("メモIDの形式が正しくありません。")
   .max(MAX_POST_ID, "メモIDの形式が正しくありません。");
 
+export const postIdValueSchema = z.preprocess((value) => {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  return /^\d+$/.test(trimmed) ? Number(trimmed) : value;
+}, postIdNumberSchema);
+
 const postTitleSchema = safeString("タイトル", 120);
 const postContentSchema = safeString("本文", 20_000);
 const aiContentSchema = safeString("本文", 12_000);
+const termsAcceptedValueSchema = z
+  .string({ error: "利用規約への同意が必要です。" })
+  .refine((value) => value === "on", "利用規約への同意が必要です。");
 
 const tagsInputSchema = safeString("タグ", 500)
   .transform((value) =>
@@ -71,6 +100,10 @@ export const registerSchema = z.object({
     .min(1, "名前を入力してください")
     .max(80, "名前は80文字以内で入力してください。")
     .refine(
+      doesNotContainDisallowedControlChars,
+      "名前に使用できない制御文字が含まれています。",
+    )
+    .refine(
       doesNotContainDangerousScript,
       "名前に使用できないスクリプト文字列が含まれています。",
     ),
@@ -84,9 +117,11 @@ export const registerSchema = z.object({
     .string({ error: "パスワードの形式が正しくありません。" })
     .min(8, "パスワードは8文字以上で入力してください")
     .max(128, "パスワードは128文字以内で入力してください。"),
-  termsAccepted: z
-    .string({ error: "利用規約への同意が必要です。" })
-    .refine((value) => value === "on", "利用規約への同意が必要です。"),
+  termsAccepted: termsAcceptedValueSchema,
+});
+
+export const termsAcceptedFormSchema = z.object({
+  termsAccepted: termsAcceptedValueSchema,
 });
 
 export const loginSchema = z.object({
@@ -155,6 +190,10 @@ export const aiContentRequestSchema = z.object({
     error: "AI処理の種類が正しくありません。",
   }),
 });
+
+export const aiGeneratedResultSchema = safeString("AIの結果", 12_000)
+  .transform((value) => value.trim())
+  .refine((value) => value.length > 0, "AIの結果を読み取れませんでした。");
 
 export type PostDraftPayloadInput = {
   id?: number | string | null;

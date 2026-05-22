@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
 import type { Prisma } from "@/app/generated/prisma";
-import { memoListPostSelect } from "@/lib/post-selects";
+import { memoListPostSelect, type MemoListPost } from "@/lib/post-selects";
 import { prisma } from "@/lib/prisma";
 import { logServerError, throwLoggedActionError } from "@/lib/server-errors";
 import {
@@ -175,17 +175,29 @@ export default async function PostsPage({ searchParams }: PostsPageProps) {
   const resolvedSearchParams = await searchParams;
   const selectedFilter = resolvePostsFilter(resolvedSearchParams?.filter);
 
-  const posts = await prisma.post.findMany({
-    where: getPostsWhere(selectedFilter, session.user.id),
-    select: memoListPostSelect,
-    orderBy: { updatedAt: "desc" },
-  });
-  const accessiblePostsCount =
-    selectedFilter === "all"
-      ? posts.length
-      : await prisma.post.count({
-          where: getPostsWhere("all", session.user.id),
-        });
+  let posts: MemoListPost[] = [];
+  let accessiblePostsCount = 0;
+
+  try {
+    posts = await prisma.post.findMany({
+      where: getPostsWhere(selectedFilter, session.user.id),
+      select: memoListPostSelect,
+      orderBy: { updatedAt: "desc" },
+    });
+    accessiblePostsCount =
+      selectedFilter === "all"
+        ? posts.length
+        : await prisma.post.count({
+            where: getPostsWhere("all", session.user.id),
+          });
+  } catch (error) {
+    logServerError(error, {
+      action: "loadPostsPage",
+      userId: session.user.id,
+      details: { filter: selectedFilter },
+    });
+    throw new Error("メモの取得に失敗しました。");
+  }
 
   const memoPosts: MemoCardPost[] = posts.map((post) => ({
     id: post.id,

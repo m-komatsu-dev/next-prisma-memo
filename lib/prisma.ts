@@ -3,7 +3,18 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 
 if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL is not set");
+  console.error(
+    JSON.stringify({
+      level: "error",
+      timestamp: new Date().toISOString(),
+      context: { action: "initializePrisma" },
+      error: {
+        name: "ConfigurationError",
+        message: "DATABASE_URL is not set",
+      },
+    }),
+  );
+  throw new Error("サーバー設定に問題があります。");
 }
 
 const globalForPrisma = globalThis as unknown as {

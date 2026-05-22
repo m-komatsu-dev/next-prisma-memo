@@ -5,8 +5,8 @@ import {
   SocialSignInWithTerms,
   type SocialSignInActionState,
 } from "@/components/social-sign-in-with-terms";
-import { logServerError } from "@/lib/server-errors";
-import { loginSchema } from "@/lib/zod";
+import { isRedirectError, logServerError } from "@/lib/server-errors";
+import { loginSchema, termsAcceptedFormSchema } from "@/lib/zod";
 import Link from "next/link";
 
 const features = [
@@ -62,7 +62,7 @@ export default async function Home() {
       });
       return { error: "" };
     } catch (error: unknown) {
-      if (error instanceof Error && error.message?.includes("NEXT_REDIRECT")) {
+      if (isRedirectError(error)) {
         throw error;
       }
 
@@ -80,11 +80,28 @@ export default async function Home() {
   ): Promise<SocialSignInActionState> {
     "use server";
 
-    if (formData.get("termsAccepted") !== "on") {
+    const validatedFields = termsAcceptedFormSchema.safeParse(
+      Object.fromEntries(formData.entries()),
+    );
+
+    if (!validatedFields.success) {
       return { formError: "利用規約への同意が必要です。" };
     }
 
-    await signIn("google");
+    try {
+      await signIn("google");
+    } catch (error) {
+      if (isRedirectError(error)) {
+        throw error;
+      }
+
+      logServerError(error, {
+        action: "loginWithGoogle",
+        details: { provider: "google" },
+      });
+      return { formError: "ログイン処理に失敗しました。" };
+    }
+
     return initialSocialSignInState;
   }
 
@@ -94,11 +111,28 @@ export default async function Home() {
   ): Promise<SocialSignInActionState> {
     "use server";
 
-    if (formData.get("termsAccepted") !== "on") {
+    const validatedFields = termsAcceptedFormSchema.safeParse(
+      Object.fromEntries(formData.entries()),
+    );
+
+    if (!validatedFields.success) {
       return { formError: "利用規約への同意が必要です。" };
     }
 
-    await signIn("github");
+    try {
+      await signIn("github");
+    } catch (error) {
+      if (isRedirectError(error)) {
+        throw error;
+      }
+
+      logServerError(error, {
+        action: "loginWithGithub",
+        details: { provider: "github" },
+      });
+      return { formError: "ログイン処理に失敗しました。" };
+    }
+
     return initialSocialSignInState;
   }
 
