@@ -6,15 +6,16 @@ Next.js と Prisma ORM、PostgreSQL を使用したモダンなフルスタッ�
 ## Tech Stack
 
 | Category | Technology |
-
-| Frontend        | Next.js(App Router) , React , TypeScript |
-| Styling         | Tailwind CSS , CSS |
-| Backend         | Next.js Server Actions, Route Handlers |
-| ORM             | Prisma ORM |
-| Database        | PostgreSQL (Prisma Postgres) |
-| Authentication  | NextAuth.js , Prisma Adapter, Credentials / Google / GitHub |
-| Validation      | Zod |
-| Package Manager | npm |
+| --- | --- |
+| **Frontend** | Next.js (App Router), React, TypeScript |
+| **Styling** | Tailwind CSS, CSS |
+| **Backend** | Next.js Server Actions, Route Handlers |
+| **ORM** | Prisma ORM |
+| **Database** | PostgreSQL (Prisma Postgres) |
+| **Authentication** | NextAuth.js, Prisma Adapter (Credentials / Google / GitHub) |
+| **Validation** | Zod |
+| **Package Manager** | npm |
+| **Deployment** | Vercel |
 
 ## Features
 
@@ -95,9 +96,9 @@ http://localhost:3000
 
 ## Available Scripts
 
-| Command         | Description |
-
-| `npm run dev`   | 開発サーバーを起動 |
+| Command | Description |
+| --- | --- |
+| `npm run dev` | 開発サーバーを起動 |
 | `npm run build` | 本番用ビルドを作成 |
 | `npm run start` | 本番ビルドを起動 |
 
