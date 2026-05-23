@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 export type TodoLine = {
   id: string;
   kind: "todo";
@@ -20,7 +22,12 @@ export type TodoListEditorProps = {
   placeholder?: string;
 };
 
+export type TodoListTextRenderer = (text: string) => ReactNode;
+
 export type TodoListContentProps = {
   content: string;
   emptyText?: string;
+  renderText?: TodoListTextRenderer;
 };
+
+export type TodoListPreviewProps = TodoListContentProps;

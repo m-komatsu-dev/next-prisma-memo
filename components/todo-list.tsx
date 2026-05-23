@@ -6,7 +6,11 @@ import {
   TodoEditorLine,
   TodoEditorToolbar,
 } from "./todo-list/todo-list-parts";
-import type { TodoListContentProps, TodoListEditorProps } from "./todo-list/types";
+import type {
+  TodoListContentProps,
+  TodoListEditorProps,
+  TodoListPreviewProps,
+} from "./todo-list/types";
 import { useTodoEditor } from "./todo-list/use-todo-editor";
 import { parseContent, serializeLines } from "./todo-list/utils";
 
@@ -58,6 +62,7 @@ export function TodoListEditor({
 export function TodoListContent({
   content,
   emptyText = "本文はまだありません。",
+  renderText,
 }: TodoListContentProps) {
   const lines = useMemo(() => parseContent(content), [content]);
 
@@ -68,8 +73,12 @@ export function TodoListContent({
   return (
     <div className="todo-content">
       {lines.map((line) => (
-        <TodoContentLine key={line.id} line={line} />
+        <TodoContentLine key={line.id} line={line} renderText={renderText} />
       ))}
     </div>
   );
+}
+
+export function TodoListPreview(props: TodoListPreviewProps) {
+  return <TodoListContent {...props} />;
 }

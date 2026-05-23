@@ -2,7 +2,7 @@
 
 import { ArrowDown, ArrowUp, CheckSquare, Square } from "lucide-react";
 import type { Dispatch, KeyboardEvent, RefObject, SetStateAction } from "react";
-import type { EditorLine } from "./types";
+import type { EditorLine, TodoListTextRenderer } from "./types";
 
 type TodoEditorToolbarProps = {
   toggleLineKind: (index?: number) => void;
@@ -107,17 +107,30 @@ export function TodoEditorLine({
   );
 }
 
-export function TodoContentLine({ line }: { line: EditorLine }) {
+type TodoContentLineProps = {
+  line: EditorLine;
+  renderText?: TodoListTextRenderer;
+};
+
+export function TodoContentLine({ line, renderText }: TodoContentLineProps) {
+  const renderedText = renderText ? renderText(line.text || "\u00a0") : line.text || "\u00a0";
+
   if (line.kind === "todo") {
     return (
       <div className={`todo-content__line ${line.checked ? "todo-content__line--checked" : ""}`}>
-        <span className="todo-content__checkbox" aria-hidden="true">
+        <span
+          className="todo-content__checkbox"
+          role="checkbox"
+          aria-checked={line.checked}
+          aria-readonly="true"
+          aria-label={line.checked ? "完了" : "未完了"}
+        >
           {line.checked ? <CheckSquare size={18} /> : <Square size={18} />}
         </span>
-        <span>{line.text || " "}</span>
+        <span>{renderedText}</span>
       </div>
     );
   }
 
-  return <p className="todo-content__paragraph">{line.text || "\u00a0"}</p>;
+  return <p className="todo-content__paragraph">{renderedText}</p>;
 }

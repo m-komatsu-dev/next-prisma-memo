@@ -10,6 +10,12 @@ import {
   SocialRegisterActions,
   type SocialRegisterActionState,
 } from "./social-register-actions";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "My Memo App - 新規登録",
+  description: "My Memo Appの新規登録ページです。必要な情報を入力して、すぐにメモを始めましょう。GoogleやGitHubアカウントでも簡単に登録できます。",
+};
 
 const initialState: RegisterActionState = {
   formError: "",

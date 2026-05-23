@@ -5,8 +5,11 @@ import Navbar from "@/components/navbar";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "My Memo App",
+  title: "Tode Text Memo App",
   description: "アイデアやタスクを軽やかに整理するプライベートメモアプリ",
+  icons: {
+    icon: "/icon.svg",
+  },
 };
 
 export default function RootLayout({

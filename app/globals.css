@@ -576,16 +576,66 @@ textarea {
 }
 
 .memo-preview {
-  display: -webkit-box;
+  position: relative;
   min-height: 4.7em;
+  max-height: 24.75em;
+  max-height: 16lh;
   overflow: hidden;
   margin: 0;
   color: var(--text-muted);
   line-height: 1.58;
   white-space: pre-wrap;
-  -webkit-box-orient: vertical;
-  /* -webkit-line-clamp: 3; */
-  line-clamp: 3;
+}
+
+.memo-preview--overflowing::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  height: 4.8em;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), var(--surface-strong) 82%);
+  pointer-events: none;
+}
+
+.memo-preview--overflowing::before {
+  content: "...";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  background: var(--surface-strong);
+  color: var(--text-soft);
+  padding-left: 12px;
+  font-weight: 900;
+  pointer-events: none;
+}
+
+.memo-preview .todo-content {
+  gap: 6px;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+}
+
+.memo-preview .todo-content__line {
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 6px;
+  min-height: 1.58em;
+  color: inherit;
+  line-height: inherit;
+}
+
+.memo-preview .todo-content__checkbox {
+  height: 1.58em;
+}
+
+.memo-preview .todo-content__paragraph,
+.memo-preview .todo-content__empty {
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
 }
 
 .memo-highlight {

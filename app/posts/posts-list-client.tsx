@@ -1,8 +1,9 @@
 "use client";
 
+import { TodoListPreview } from "@/components/todo-list";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 export type MemoCardPost = {
   id: number;
@@ -36,7 +37,10 @@ const dateFormatter = new Intl.DateTimeFormat("ja-JP", {
   day: "numeric",
 });
 
-function highlightText(text: string, query: string) {
+const PREVIEW_LINE_LIMIT = 14;
+const PREVIEW_APPROX_CHARS_PER_LINE = 42;
+
+function highlightText(text: string, query: string): ReactNode {
   const trimmedQuery = query.trim();
   if (!trimmedQuery) return text;
 
@@ -54,9 +58,57 @@ function highlightText(text: string, query: string) {
   );
 }
 
-function getPreview(content: string) {
+function isPreviewLikelyOverflowing(content: string) {
   const normalized = content.trim();
-  return normalized.length > 0 ? normalized : "本文はまだありません。";
+  if (!normalized) return false;
+
+  const lines = normalized.split("\n");
+  if (lines.length > PREVIEW_LINE_LIMIT) return true;
+
+  const estimatedWrappedLines = lines.reduce((total, line) => {
+    return total + Math.max(1, Math.ceil(line.length / PREVIEW_APPROX_CHARS_PER_LINE));
+  }, 0);
+
+  return estimatedWrappedLines > PREVIEW_LINE_LIMIT;
+}
+
+function MemoContentPreview({ content, query }: { content: string; query: string }) {
+  const previewRef = useRef<HTMLDivElement>(null);
+  const [isOverflowing, setIsOverflowing] = useState(() => isPreviewLikelyOverflowing(content));
+  const previewClassName = isOverflowing
+    ? "memo-preview memo-preview--overflowing"
+    : "memo-preview";
+
+  useEffect(() => {
+    const preview = previewRef.current;
+    if (!preview) return;
+
+    const measureOverflow = () => {
+      const nextIsOverflowing = preview.scrollHeight - preview.clientHeight > 1;
+      setIsOverflowing((current) => (current === nextIsOverflowing ? current : nextIsOverflowing));
+    };
+
+    measureOverflow();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measureOverflow);
+      return () => window.removeEventListener("resize", measureOverflow);
+    }
+
+    const resizeObserver = new ResizeObserver(measureOverflow);
+    resizeObserver.observe(preview);
+
+    return () => resizeObserver.disconnect();
+  }, [content, query]);
+
+  return (
+    <div ref={previewRef} className={previewClassName}>
+      <TodoListPreview
+        content={content}
+        renderText={(text) => highlightText(text, query)}
+      />
+    </div>
+  );
 }
 
 export default function PostsListClient({
@@ -235,7 +287,7 @@ export default function PostsListClient({
                         <Link href={`/posts/${post.id}`}>{highlightText(post.title, query)}</Link>
                       </h2>
 
-                      <p className="memo-preview">{highlightText(getPreview(post.content), query)}</p>
+                      <MemoContentPreview content={post.content} query={query} />
 
                       {post.tags.length > 0 && (
                         <div className="memo-tags">

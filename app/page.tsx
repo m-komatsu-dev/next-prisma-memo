@@ -8,6 +8,12 @@ import {
 import { isRedirectError, logServerError } from "@/lib/server-errors";
 import { loginSchema, termsAcceptedFormSchema } from "@/lib/zod";
 import Link from "next/link";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "My Memo App - 思考を逃さず、すっきり整理するメモ空間",
+  description: "日々のアイデア、タスク、学びを軽やかに残せるプライベートなメモアプリです。ログインして、あなたのメモ一覧へすぐに進めます。",
+};
 
 const features = [
   {

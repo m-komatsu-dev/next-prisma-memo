@@ -8,6 +8,12 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import PostDetailActions from "./post-detail-actions";// 編集や削除など、メモ詳細画面の操作ボタンをまとめた部品を読み込みます。
 import { TodoListContent } from "@/components/todo-list";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "My Memo App - メモ詳細",
+  description: "メモの詳細情報を表示します。タイトル、内容、作成日時、更新日時、作成者、タグなどを確認できます。編集や削除もこのページから行えます。",
+};
 
 // 日付と時刻を日本向けの読みやすい表示に変換するための設定を作ります。
 const dateTimeFormatter = new Intl.DateTimeFormat("ja-JP", {

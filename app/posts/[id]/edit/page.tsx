@@ -6,6 +6,12 @@ import { logServerError } from "@/lib/server-errors";
 import { postIdValueSchema } from "@/lib/zod";
 import { notFound, redirect } from "next/navigation";
 import { autoSaveEditPost, saveEditPost } from "./actions";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "My Memo App - メモ編集",
+  description: "既存のメモを編集するページです。タイトル、内容、タグ、公開設定を変更して、メモを更新できます。変更は自動保存されるので、安心して編集に集中できます。",
+};
 
 export default async function EditPost({ params }: { params: Promise<{ id: string }> }) {
   const session = await auth();

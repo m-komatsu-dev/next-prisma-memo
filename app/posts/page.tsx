@@ -11,6 +11,12 @@ import {
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import PostsListClient, { type MemoCardPost } from "./posts-list-client";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "My Memo App - メモ一覧",
+  description: "あなたのメモ一覧を表示します。ここから新しいメモを作成したり、既存のメモを編集・削除できます。公開設定もこのページで管理できます。",
+};
 
 type PostsFilter = "all" | "published" | "private" | "mine";
 

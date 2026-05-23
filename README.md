@@ -3,6 +3,11 @@
 Next.js と Prisma ORM、PostgreSQL を使用したモダンなフルスタック・メモ管理アプリケーションです。  
 ユーザー認証、メモの作成・編集・削除、タグ管理、公開設定、検索・絞り込みなど、実用的なメモ管理体験をフルスタックで実装しています。
 
+## Demo
+
+- App URL: https://todo-text-memo.vercel.app
+- GitHub: https://github.com/m-komatsu-dev/next-prisma-memo
+
 ## Tech Stack
 
 | Category | Technology |
