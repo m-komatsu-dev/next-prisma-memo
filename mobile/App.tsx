@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import * as Clipboard from "expo-clipboard";
 import {
   ActivityIndicator,
   Alert,
@@ -32,19 +33,34 @@ import {
   saveAccessToken,
 } from "./src/storage/auth-token";
 import { Badge, Button, Card, TextField } from "./src/components/ui";
-import { colors, radius, shadows, spacing, typography } from "./src/theme";
+import { colors, radius, spacing, typography } from "./src/theme";
 import type { MobileAiMode, MobilePost, MobilePostPayload } from "./src/types/posts";
 
 type ViewMode = "list" | "detail" | "create" | "edit";
 type AuthViewMode = "landing" | "login";
 type AutoSaveStatus = "unsaved" | "saving" | "saved" | "error";
+type StatusFilter = "all" | "mine" | "published" | "private";
+type SortMode = "updated-desc" | "created-desc" | "title-asc";
+type EditorLine =
+  | {
+      id: string;
+      kind: "text";
+      text: string;
+    }
+  | {
+      checked: boolean;
+      id: string;
+      kind: "todo";
+      text: string;
+    };
 
 const AUTO_SAVE_DEBOUNCE_MS = 1500;
 
 const aiTasks: { label: string; mode: MobileAiMode }[] = [
-  { label: "要約", mode: "summarize" },
-  { label: "リライト", mode: "improve" },
-  { label: "アイデア", mode: "ideas" },
+  { label: "タイトル生成", mode: "title" },
+  { label: "タグ生成", mode: "tags" },
+  { label: "要約を追加", mode: "summarize" },
+  { label: "リライトを追加", mode: "rewrite" },
 ];
 
 const features = [
@@ -60,6 +76,19 @@ const features = [
     title: "全世界へ共有",
     description: "メモの設定を切り替えるだけで、全世界に公開できます。",
   },
+];
+
+const statusFilters: { label: string; value: StatusFilter }[] = [
+  { label: "すべて", value: "all" },
+  { label: "自分", value: "mine" },
+  { label: "公開", value: "published" },
+  { label: "非公開", value: "private" },
+];
+
+const sortOptions: { label: string; value: SortMode }[] = [
+  { label: "更新日", value: "updated-desc" },
+  { label: "作成日", value: "created-desc" },
+  { label: "タイトル", value: "title-asc" },
 ];
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
@@ -79,16 +108,11 @@ function formatUpdatedAt(value: string) {
   return dateFormatter.format(date);
 }
 
-function getPreview(content: string) {
-  const normalized = content.trim();
-
-  if (!normalized) {
-    return "本文はまだありません。";
-  }
-
-  return normalized.length > 120
-    ? `${normalized.slice(0, 120).trimEnd()}...`
-    : normalized;
+function getPlainPreview(content: string) {
+  return parseEditorContent(content)
+    .map((line) => line.text)
+    .join("\n")
+    .trim();
 }
 
 function getTagsInput(post?: MobilePost | null) {
@@ -104,6 +128,13 @@ function getPayloadSignature(payload: MobilePostPayload) {
   });
 }
 
+function getNormalizedPayload(payload: MobilePostPayload): MobilePostPayload {
+  return {
+    ...payload,
+    content: normalizeChecklistContentForSave(payload.content),
+  };
+}
+
 function canAutoSavePayload(payload: MobilePostPayload) {
   return Boolean(payload.title.trim() && payload.content.trim());
 }
@@ -115,23 +146,83 @@ function getAutoSaveStatusText(status: AutoSaveStatus) {
   return "未保存";
 }
 
-function getAiResultHeading(mode: MobileAiMode | null) {
-  if (mode === "improve") return "AIによるリライト";
-  if (mode === "ideas") return "AIによるアイデア";
-  return "AIによる要約";
+function appendAiSection(currentContent: string, result: string, heading: string) {
+  return `${currentContent.trimEnd()}\n\n\n--- ${heading} ---\n${result}`.trimStart();
 }
 
-function getAppliedAiContent(
-  currentContent: string,
-  result: string,
-  mode: MobileAiMode | null,
-) {
-  if (mode === "improve") {
-    return result;
+const TODO_LINE_PATTERN = /^(\s*)-\s+\[([ xX])\]\s?(.*)$/;
+
+function createEditorLineId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function parseEditorLine(rawLine: string): EditorLine {
+  const match = rawLine.match(TODO_LINE_PATTERN);
+
+  if (!match) {
+    return {
+      id: createEditorLineId(),
+      kind: "text",
+      text: rawLine,
+    };
   }
 
-  const heading = mode === "ideas" ? "AIによるアイデア" : "AIによる要約";
-  return `${currentContent.trimEnd()}\n\n\n--- ${heading} ---\n${result}`.trimStart();
+  return {
+    checked: match[2].toLowerCase() === "x",
+    id: createEditorLineId(),
+    kind: "todo",
+    text: match[3],
+  };
+}
+
+function parseEditorContent(content: string) {
+  const rawLines = content.length > 0 ? content.split("\n") : [""];
+  return rawLines.map(parseEditorLine);
+}
+
+function serializeEditorLine(line: EditorLine) {
+  if (line.kind === "todo") {
+    return `- [${line.checked ? "x" : " "}] ${line.text}`;
+  }
+
+  return line.text;
+}
+
+function serializeEditorLines(lines: EditorLine[]) {
+  return lines.map(serializeEditorLine).join("\n");
+}
+
+function normalizeChecklistContentForSave(content: string) {
+  return parseEditorContent(content)
+    .filter((line) => line.kind !== "todo" || line.text.trim().length > 0)
+    .map(serializeEditorLine)
+    .join("\n")
+    .trimEnd();
+}
+
+function moveCompletedTodoToBottom(lines: EditorLine[], index: number) {
+  if (lines[index]?.kind !== "todo") return lines;
+
+  let start = index;
+  let end = index;
+
+  while (start > 0 && lines[start - 1].kind === "todo") start -= 1;
+  while (end < lines.length - 1 && lines[end + 1].kind === "todo") end += 1;
+
+  const before = lines.slice(0, start);
+  const block = lines.slice(start, end + 1);
+  const after = lines.slice(end + 1);
+  const openItems = block.filter((line) => line.kind !== "todo" || !line.checked);
+  const completedItems = block.filter(
+    (line) => line.kind === "todo" && line.checked,
+  );
+
+  return [...before, ...openItems, ...completedItems, ...after];
+}
+
+function getFormattedCopyContent(post: MobilePost) {
+  const tagLine = post.tags.map((tag) => `#${tag.name}`).join(" ");
+  return `タイトル: ${post.title}\nタグ: ${tagLine || "未分類"}\n---\n${post.content}`;
 }
 
 function modeForAutoSave(viewMode: ViewMode, postId: number | null) {
@@ -178,7 +269,7 @@ function HomeLanding({
         </Button>
       </View>
 
-      <Card style={styles.heroStats}>
+      <Card style={[styles.heroStats, styles.flatSurface]}>
         <View style={styles.heroStatItem}>
           <Text style={styles.heroStatTitle}>Fast</Text>
           <Text style={styles.heroStatText}>すぐ書ける導線</Text>
@@ -195,13 +286,71 @@ function HomeLanding({
 
       <View style={styles.featureGrid}>
         {features.map((feature) => (
-          <Card key={feature.title} style={styles.featureCard}>
+          <Card key={feature.title} style={[styles.featureCard, styles.flatSurface]}>
             <Text style={styles.featureTitle}>{feature.title}</Text>
             <Text style={styles.featureText}>{feature.description}</Text>
           </Card>
         ))}
       </View>
     </ScrollView>
+  );
+}
+
+function PostContentPreview({ content }: { content: string }) {
+  const lines = useMemo(() => parseEditorContent(content), [content]);
+  const hasContent = getPlainPreview(content).length > 0;
+  const visibleLines = lines
+    .filter((line) => line.kind !== "todo" || line.text.trim().length > 0)
+    .slice(0, 6);
+
+  if (!hasContent || visibleLines.length === 0) {
+    return (
+      <Text style={styles.cardContent} numberOfLines={2}>
+        本文はまだありません。
+      </Text>
+    );
+  }
+
+  return (
+    <View style={styles.cardContentPreview}>
+      {visibleLines.map((line, index) => {
+        if (line.kind !== "todo") {
+          return (
+            <Text
+              key={`${line.id}-${index}`}
+              numberOfLines={2}
+              style={styles.cardContentPreviewText}
+            >
+              {line.text || " "}
+            </Text>
+          );
+        }
+
+        return (
+          <View key={`${line.id}-${index}`} style={styles.cardTodoPreviewLine}>
+            <View
+              style={[
+                styles.cardTodoCheckbox,
+                line.checked ? styles.todoCheckboxChecked : undefined,
+              ]}
+            >
+              {line.checked ? (
+                <Text style={styles.cardTodoCheckboxMark}>x</Text>
+              ) : null}
+            </View>
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.cardTodoPreviewText,
+                line.checked ? styles.todoTextChecked : undefined,
+              ]}
+            >
+              {line.text}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
   );
 }
 
@@ -235,9 +384,7 @@ function PostCard({
             {post.title}
           </Text>
 
-          <Text style={styles.cardContent} numberOfLines={6}>
-            {getPreview(post.content)}
-          </Text>
+          <PostContentPreview content={post.content} />
 
           <View style={styles.tagRow}>
             {post.tags.length > 0 ? (
@@ -266,6 +413,343 @@ function PostCard({
         </View>
       </Card>
     </Pressable>
+  );
+}
+
+function TodoContentDisplay({ content }: { content: string }) {
+  const lines = content.trim() ? content.split("\n") : [];
+
+  if (lines.length === 0) {
+    return <Text style={styles.detailBody}>本文はまだありません。</Text>;
+  }
+
+  return (
+    <View style={styles.todoContent}>
+      {lines.map((line, index) => {
+        const match = line.match(TODO_LINE_PATTERN);
+
+        if (!match) {
+          return (
+            <Text key={`${line}-${index}`} style={styles.todoParagraph}>
+              {line || " "}
+            </Text>
+          );
+        }
+
+        const checked = match[2].toLowerCase() === "x";
+
+        return (
+          <View
+            key={`${line}-${index}`}
+            style={[
+              styles.todoLine,
+              checked ? styles.todoLineChecked : undefined,
+            ]}
+          >
+            <View
+              style={[
+                styles.todoCheckbox,
+                checked ? styles.todoCheckboxChecked : undefined,
+              ]}
+            >
+              {checked ? <Text style={styles.todoCheckboxMark}>x</Text> : null}
+            </View>
+            <Text
+              style={[
+                styles.todoText,
+                checked ? styles.todoTextChecked : undefined,
+              ]}
+            >
+              {match[3] || " "}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function TodoListEditor({
+  editable,
+  onChange,
+  value,
+}: {
+  editable: boolean;
+  onChange: (nextContent: string) => void;
+  value: string;
+}) {
+  const [lines, setLines] = useState<EditorLine[]>(() => parseEditorContent(value));
+  const [activeLineId, setActiveLineId] = useState(lines[0]?.id ?? "");
+  const inputRefs = useRef<Map<string, TextInput | null>>(new Map());
+  const internalValueRef = useRef(value);
+
+  useEffect(() => {
+    if (value === internalValueRef.current) {
+      return;
+    }
+
+    const nextLines = parseEditorContent(value);
+    internalValueRef.current = value;
+    setLines(nextLines);
+    setActiveLineId(nextLines[0]?.id ?? "");
+  }, [value]);
+
+  const commitLines = useCallback(
+    (nextLines: EditorLine[], nextFocusId?: string) => {
+      setLines(nextLines);
+
+      const nextValue = serializeEditorLines(nextLines);
+      internalValueRef.current = nextValue;
+      onChange(nextValue);
+
+      if (nextFocusId) {
+        setActiveLineId(nextFocusId);
+        requestAnimationFrame(() => {
+          inputRefs.current.get(nextFocusId)?.focus();
+        });
+      }
+    },
+    [onChange],
+  );
+
+  const activeLineIndex = useMemo(
+    () => lines.findIndex((line) => line.id === activeLineId),
+    [activeLineId, lines],
+  );
+
+  const appendTodoLine = useCallback(() => {
+    const lastLine = lines[lines.length - 1];
+
+    if (lastLine?.kind === "todo" && lastLine.text.trim().length === 0) {
+      commitLines(lines, lastLine.id);
+      return;
+    }
+
+    const nextLine: EditorLine = {
+      checked: false,
+      id: createEditorLineId(),
+      kind: "todo",
+      text: "",
+    };
+
+    commitLines([...lines, nextLine], nextLine.id);
+  }, [commitLines, lines]);
+
+  const toggleActiveLineKind = useCallback(() => {
+    const targetIndex = activeLineIndex >= 0 ? activeLineIndex : lines.length - 1;
+
+    if (targetIndex < 0) {
+      appendTodoLine();
+      return;
+    }
+
+    const nextLines = lines.map((line, index) => {
+      if (index !== targetIndex) return line;
+
+      if (line.kind === "todo") {
+        return {
+          id: line.id,
+          kind: "text" as const,
+          text: line.text,
+        };
+      }
+
+      return {
+        checked: false,
+        id: line.id,
+        kind: "todo" as const,
+        text: line.text,
+      };
+    });
+
+    commitLines(nextLines, nextLines[targetIndex]?.id);
+  }, [activeLineIndex, appendTodoLine, commitLines, lines]);
+
+  const toggleChecked = useCallback(
+    (index: number) => {
+      const toggledLines = lines.map((line, lineIndex) =>
+        lineIndex === index && line.kind === "todo"
+          ? {
+              ...line,
+              checked: !line.checked,
+            }
+          : line,
+      );
+      const nextLines = moveCompletedTodoToBottom(toggledLines, index);
+      const focusId = toggledLines[index]?.id;
+
+      commitLines(nextLines, focusId);
+    },
+    [commitLines, lines],
+  );
+
+  const removeLine = useCallback(
+    (index: number) => {
+      if (lines.length === 1) {
+        const nextLines: EditorLine[] = [
+          {
+            id: lines[0].id,
+            kind: "text",
+            text: "",
+          },
+        ];
+        commitLines(nextLines, nextLines[0].id);
+        return;
+      }
+
+      const nextLines = lines.filter((_, lineIndex) => lineIndex !== index);
+      const nextFocusId = nextLines[Math.max(index - 1, 0)]?.id;
+      commitLines(nextLines, nextFocusId);
+    },
+    [commitLines, lines],
+  );
+
+  const updateLineText = useCallback(
+    (index: number, nextText: string) => {
+      const currentLine = lines[index];
+      if (!currentLine) return;
+
+      if (nextText.includes("\n")) {
+        const textParts = nextText.replace(/\r/g, "").split("\n");
+        const replacementLines: EditorLine[] = textParts.map((textPart, partIndex) => {
+          if (partIndex === 0) {
+            return {
+              ...currentLine,
+              text: textPart,
+            };
+          }
+
+          return currentLine.kind === "todo"
+            ? {
+                checked: false,
+                id: createEditorLineId(),
+                kind: "todo",
+                text: textPart,
+              }
+            : {
+                id: createEditorLineId(),
+                kind: "text",
+                text: textPart,
+              };
+        });
+        const nextLines = [
+          ...lines.slice(0, index),
+          ...replacementLines,
+          ...lines.slice(index + 1),
+        ];
+        const nextFocusId = replacementLines[1]?.id ?? replacementLines[0]?.id;
+
+        commitLines(nextLines, nextFocusId);
+        return;
+      }
+
+      const nextLines = lines.map((line, lineIndex) =>
+        lineIndex === index
+          ? {
+              ...line,
+              text: nextText,
+            }
+          : line,
+      );
+
+      commitLines(nextLines);
+    },
+    [commitLines, lines],
+  );
+
+  return (
+    <View style={styles.todoEditor}>
+      <View style={styles.todoEditorToolbar}>
+        <Button
+          disabled={!editable}
+          onPress={toggleActiveLineKind}
+          style={styles.todoToolbarButton}
+          variant="soft"
+        >
+          チェックボックス
+        </Button>
+        <Button
+          disabled={!editable}
+          onPress={appendTodoLine}
+          style={styles.todoToolbarButton}
+          variant="secondary"
+        >
+          チェック項目を追加
+        </Button>
+      </View>
+
+      <View style={styles.todoEditorLines}>
+        {lines.map((line, index) => {
+          const isChecked = line.kind === "todo" && line.checked;
+
+          return (
+            <View
+              key={line.id}
+              style={[
+                styles.todoEditorLine,
+                isChecked ? styles.todoEditorLineChecked : undefined,
+              ]}
+            >
+              {line.kind === "todo" ? (
+                <Pressable
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: line.checked }}
+                  disabled={!editable}
+                  onPress={() => toggleChecked(index)}
+                  style={({ pressed }) => [
+                    styles.todoCheckButton,
+                    pressed ? styles.buttonPressed : undefined,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.todoCheckbox,
+                      line.checked ? styles.todoCheckboxChecked : undefined,
+                    ]}
+                  >
+                    {line.checked ? (
+                      <Text style={styles.todoCheckboxMark}>x</Text>
+                    ) : null}
+                  </View>
+                </Pressable>
+              ) : (
+                <View style={styles.todoTextSpacer} />
+              )}
+
+              <TextInput
+                blurOnSubmit={false}
+                editable={editable}
+                multiline
+                onChangeText={(nextText) => updateLineText(index, nextText)}
+                onFocus={() => {
+                  setActiveLineId(line.id);
+                }}
+                onKeyPress={({ nativeEvent }) => {
+                  if (nativeEvent.key === "Backspace" && line.text.length === 0) {
+                    removeLine(index);
+                  }
+                }}
+                placeholder={lines.length === 1 && !line.text ? "本文を書き始める" : ""}
+                placeholderTextColor="#a0a8b5"
+                ref={(node) => {
+                  inputRefs.current.set(line.id, node);
+                  if (!node) {
+                    inputRefs.current.delete(line.id);
+                  }
+                }}
+                returnKeyType="default"
+                style={[
+                  styles.todoEditorInput,
+                  isChecked ? styles.todoTextChecked : undefined,
+                ]}
+                textAlignVertical="top"
+                value={line.text}
+              />
+            </View>
+          );
+        })}
+      </View>
+    </View>
   );
 }
 
@@ -300,18 +784,24 @@ function MemoForm({
   const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>(
     initialPost ? "saved" : "unsaved",
   );
+  const [aiOpen, setAiOpen] = useState(false);
   const [aiMode, setAiMode] = useState<MobileAiMode | null>(null);
-  const [aiResult, setAiResult] = useState("");
-  const [aiResultMode, setAiResultMode] = useState<MobileAiMode | null>(null);
   const [aiError, setAiError] = useState("");
+  const [aiStatusMessage, setAiStatusMessage] = useState("");
   const [draftPostId, setDraftPostId] = useState<number | null>(
     initialPost?.id ?? null,
   );
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoSaveInFlightSignatureRef = useRef("");
+  const draftPostIdRef = useRef<number | null>(initialPost?.id ?? null);
+  const latestPayloadSignatureRef = useRef("");
+  const onAutoSaveRef = useRef(onAutoSave);
+  const titleRef = useRef(title);
+  const tagsRef = useRef(tags);
   const lastSavedSignatureRef = useRef(
     initialPost
       ? getPayloadSignature({
-          content: initialPost.content,
+          content: normalizeChecklistContentForSave(initialPost.content),
           published: initialPost.published,
           tags: getTagsInput(initialPost),
           title: initialPost.title,
@@ -320,19 +810,43 @@ function MemoForm({
   );
 
   const payload = useMemo(
-    () => ({
-      content,
-      published,
-      tags,
-      title,
-    }),
+    () =>
+      getNormalizedPayload({
+        content,
+        published,
+        tags,
+        title,
+      }),
     [content, published, tags, title],
   );
 
   useEffect(() => {
+    latestPayloadSignatureRef.current = getPayloadSignature(payload);
+  }, [payload]);
+
+  useEffect(() => {
+    onAutoSaveRef.current = onAutoSave;
+  }, [onAutoSave]);
+
+  useEffect(() => {
+    draftPostIdRef.current = draftPostId;
+  }, [draftPostId]);
+
+  useEffect(() => {
+    titleRef.current = title;
+  }, [title]);
+
+  useEffect(() => {
+    tagsRef.current = tags;
+  }, [tags]);
+
+  useEffect(() => {
     const signature = getPayloadSignature(payload);
 
-    if (signature === lastSavedSignatureRef.current) {
+    if (
+      signature === lastSavedSignatureRef.current ||
+      signature === autoSaveInFlightSignatureRef.current
+    ) {
       return;
     }
 
@@ -347,23 +861,35 @@ function MemoForm({
     }
 
     autoSaveTimerRef.current = setTimeout(() => {
+      if (
+        signature === lastSavedSignatureRef.current ||
+        signature === autoSaveInFlightSignatureRef.current
+      ) {
+        return;
+      }
+
+      autoSaveTimerRef.current = null;
+      autoSaveInFlightSignatureRef.current = signature;
       setAutoSaveStatus("saving");
 
-      onAutoSave(payload, draftPostId)
-        .then((savedPost) => {
-          const savedSignature = getPayloadSignature({
-            content: savedPost.content,
-            published: savedPost.published,
-            tags: getTagsInput(savedPost),
-            title: savedPost.title,
-          });
+      const draftPostIdAtSave = draftPostIdRef.current;
 
+      onAutoSaveRef.current(payload, draftPostIdAtSave)
+        .then((savedPost) => {
+          draftPostIdRef.current = savedPost.id;
           setDraftPostId(savedPost.id);
-          lastSavedSignatureRef.current = savedSignature;
-          setAutoSaveStatus("saved");
+          lastSavedSignatureRef.current = signature;
+          setAutoSaveStatus(
+            latestPayloadSignatureRef.current === signature ? "saved" : "unsaved",
+          );
         })
         .catch(() => {
           setAutoSaveStatus("error");
+        })
+        .finally(() => {
+          if (autoSaveInFlightSignatureRef.current === signature) {
+            autoSaveInFlightSignatureRef.current = "";
+          }
         });
     }, AUTO_SAVE_DEBOUNCE_MS);
 
@@ -372,7 +898,7 @@ function MemoForm({
         clearTimeout(autoSaveTimerRef.current);
       }
     };
-  }, [draftPostId, onAutoSave, payload]);
+  }, [payload]);
 
   const handleSubmit = useCallback(() => {
     onSubmit(payload, draftPostId);
@@ -387,11 +913,47 @@ function MemoForm({
 
       setAiMode(nextMode);
       setAiError("");
+      setAiStatusMessage("");
+
+      const titleAtRequest = titleRef.current;
+      const tagsAtRequest = tagsRef.current;
 
       try {
         const result = await onGenerateAi(content, nextMode);
-        setAiResult(result);
-        setAiResultMode(nextMode);
+
+        if (nextMode === "title") {
+          if (titleRef.current === titleAtRequest) {
+            titleRef.current = result;
+            setTitle(result);
+            setAiStatusMessage("タイトルを反映しました");
+          } else {
+            setAiStatusMessage("入力中のタイトルを優先しました");
+          }
+          return;
+        }
+
+        if (nextMode === "tags") {
+          if (tagsRef.current === tagsAtRequest) {
+            tagsRef.current = result;
+            setTags(result);
+            setAiStatusMessage("タグを反映しました");
+          } else {
+            setAiStatusMessage("入力中のタグを優先しました");
+          }
+          return;
+        }
+
+        const heading =
+          nextMode === "rewrite" || nextMode === "improve"
+            ? "AIによるリライト"
+            : nextMode === "ideas"
+              ? "AIによるアイデア"
+              : "AIによる要約";
+
+        setContent((currentContent) =>
+          appendAiSection(currentContent, result, heading),
+        );
+        setAiStatusMessage("本文に追加しました");
       } catch (caughtError) {
         setAiError(
           caughtError instanceof Error
@@ -405,19 +967,10 @@ function MemoForm({
     [content, onGenerateAi],
   );
 
-  const applyAiResult = useCallback(() => {
-    if (!aiResult) {
-      return;
-    }
-
-    setContent((currentContent) =>
-      getAppliedAiContent(currentContent, aiResult, aiResultMode),
-    );
-  }, [aiResult, aiResultMode]);
-
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       style={styles.flex}
     >
       <ScrollView
@@ -467,49 +1020,55 @@ function MemoForm({
           </Text>
         </View>
 
-        <Card style={styles.aiPanel}>
-          <View style={styles.aiPanelHeader}>
+        <Card style={[styles.aiPanel, styles.flatSurface]}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setAiOpen((current) => !current)}
+            style={({ pressed }) => [
+              styles.aiPanelHeader,
+              pressed ? styles.buttonPressed : undefined,
+            ]}
+          >
             <View style={styles.editorHeading}>
               <Text style={styles.aiPanelKicker}>AI Assistant</Text>
               <Text style={styles.aiPanelLead}>
-                本文をもとに、要約・リライト・次のアイデアを生成できます。
+                {aiOpen
+                  ? "タイトル・タグ・要約・リライトを生成できます。"
+                  : "タップしてAI機能を開く"}
               </Text>
             </View>
-            {aiMode ? <ActivityIndicator color={colors.primaryStrong} /> : null}
-          </View>
-
-          <View style={styles.aiButtonRow}>
-            {aiTasks.map((task) => (
-              <Button
-                disabled={Boolean(aiMode)}
-                key={task.mode}
-                onPress={() => {
-                  void handleAiGenerate(task.mode);
-                }}
-                style={styles.aiTaskButton}
-                variant="soft"
-              >
-                {aiMode === task.mode ? "生成中..." : task.label}
-              </Button>
-            ))}
-          </View>
-
-          {aiError ? <Text style={styles.aiErrorText}>{aiError}</Text> : null}
-
-          {aiResult ? (
-            <View style={styles.aiResultBox}>
-              <Text style={styles.aiResultLabel}>
-                {getAiResultHeading(aiResultMode)}
-              </Text>
-              <Text style={styles.aiResultText}>{aiResult}</Text>
-              <Button
-                onPress={applyAiResult}
-                style={styles.aiApplyButton}
-                variant={aiResultMode === "improve" ? "dark" : "secondary"}
-              >
-                {aiResultMode === "improve" ? "本文を置き換える" : "本文に追加"}
-              </Button>
+            <View style={styles.aiHeaderRight}>
+              {aiMode ? (
+                <ActivityIndicator color={colors.primaryStrong} />
+              ) : (
+                <Text style={styles.aiToggleText}>{aiOpen ? "閉じる" : "開く"}</Text>
+              )}
             </View>
+          </Pressable>
+
+          {aiOpen ? (
+            <>
+              <View style={styles.aiButtonRow}>
+                {aiTasks.map((task) => (
+                  <Button
+                    disabled={Boolean(aiMode)}
+                    key={task.mode}
+                    onPress={() => {
+                      void handleAiGenerate(task.mode);
+                    }}
+                    style={styles.aiTaskButton}
+                    variant="soft"
+                  >
+                    {aiMode === task.mode ? "生成中..." : task.label}
+                  </Button>
+                ))}
+              </View>
+
+              {aiStatusMessage ? (
+                <Text style={styles.aiSuccessText}>{aiStatusMessage}</Text>
+              ) : null}
+              {aiError ? <Text style={styles.aiErrorText}>{aiError}</Text> : null}
+            </>
           ) : null}
         </Card>
 
@@ -527,14 +1086,9 @@ function MemoForm({
             <Text style={styles.editorToolbarText}>本文</Text>
           </View>
 
-          <TextInput
+          <TodoListEditor
             editable={!saving}
-            multiline
-            onChangeText={setContent}
-            placeholder="本文を書き始める"
-            placeholderTextColor="#a0a8b5"
-            style={styles.editorBodyInput}
-            textAlignVertical="top"
+            onChange={setContent}
             value={content}
           />
 
@@ -587,12 +1141,17 @@ export default function App() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState("");
   const [posts, setPosts] = useState<MobilePost[]>([]);
+  const [query, setQuery] = useState("");
+  const [selectedFilter, setSelectedFilter] = useState<StatusFilter>("all");
+  const [sortMode, setSortMode] = useState<SortMode>("updated-desc");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [selectedPost, setSelectedPost] = useState<MobilePost | null>(null);
+  const [copied, setCopied] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
   const [formError, setFormError] = useState("");
@@ -604,7 +1163,12 @@ export default function App() {
     await deleteStoredAccessToken();
     setAccessToken(null);
     setPosts([]);
+    setQuery("");
+    setSelectedFilter("all");
+    setSortMode("updated-desc");
+    setFiltersOpen(false);
     setSelectedPost(null);
+    setCopied(false);
     setViewMode("list");
     setError("");
     setErrorStatus(null);
@@ -766,6 +1330,7 @@ export default function App() {
       }
 
       setSelectedPost(post);
+      setCopied(false);
       setViewMode("detail");
       setDetailLoading(true);
       setDetailError("");
@@ -807,6 +1372,16 @@ export default function App() {
     setAutoSaveError("");
     setViewMode("edit");
   }, []);
+
+  const copySelectedPost = useCallback(async () => {
+    if (!selectedPost) {
+      return;
+    }
+
+    await Clipboard.setStringAsync(getFormattedCopyContent(selectedPost));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  }, [selectedPost]);
 
   const handleCancelForm = useCallback(() => {
     setFormError("");
@@ -1050,6 +1625,47 @@ export default function App() {
 
   const errorTitle =
     errorStatus === 401 ? "ログインが必要です" : "取得できませんでした";
+  const filteredPosts = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+
+    return posts
+      .filter((post) => {
+        const matchesQuery =
+          normalizedQuery.length === 0 ||
+          post.title.toLowerCase().includes(normalizedQuery) ||
+          post.content.toLowerCase().includes(normalizedQuery) ||
+          post.tags.some((tag) =>
+            tag.name.toLowerCase().includes(normalizedQuery),
+          );
+
+        const matchesStatus =
+          selectedFilter === "all" ||
+          selectedFilter === "mine" ||
+          (selectedFilter === "published" && post.published) ||
+          (selectedFilter === "private" && !post.published);
+
+        return matchesQuery && matchesStatus;
+      })
+      .sort((leftPost, rightPost) => {
+        if (sortMode === "title-asc") {
+          return leftPost.title.localeCompare(rightPost.title, "ja");
+        }
+
+        const left =
+          sortMode === "created-desc" ? leftPost.createdAt : leftPost.updatedAt;
+        const right =
+          sortMode === "created-desc" ? rightPost.createdAt : rightPost.updatedAt;
+
+        return new Date(right).getTime() - new Date(left).getTime();
+      });
+  }, [posts, query, selectedFilter, sortMode]);
+  const publishedCount = posts.filter((post) => post.published).length;
+  const privateCount = posts.filter((post) => !post.published).length;
+  const selectedFilterLabel =
+    statusFilters.find((filter) => filter.value === selectedFilter)?.label ??
+    "すべて";
+  const selectedSortLabel =
+    sortOptions.find((option) => option.value === sortMode)?.label ?? "更新日";
 
   if (restoringToken) {
     return (
@@ -1080,71 +1696,77 @@ export default function App() {
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="dark-content" />
         <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 18 : 0}
           style={styles.loginScreen}
         >
-          <Card style={styles.loginPanel}>
-            <Button
-              onPress={() => setAuthViewMode("landing")}
-              style={styles.backToLandingButton}
-              variant="secondary"
-            >
-              概要に戻る
-            </Button>
+          <ScrollView
+            contentContainerStyle={styles.loginScrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Card style={[styles.loginPanel, styles.flatSurface]}>
+              <Button
+                onPress={() => setAuthViewMode("landing")}
+                style={styles.backToLandingButton}
+                variant="secondary"
+              >
+                概要に戻る
+              </Button>
 
-            <View style={styles.brandRow}>
-              <View style={styles.brandMark}>
-                <Text style={styles.brandMarkText}>M</Text>
+              <View style={styles.brandRow}>
+                <View style={styles.brandMark}>
+                  <Text style={styles.brandMarkText}>M</Text>
+                </View>
+                <Text style={styles.brandText}>My Memo App</Text>
               </View>
-              <Text style={styles.brandText}>My Memo App</Text>
-            </View>
-            <View style={styles.loginHeading}>
-              <Text style={styles.kicker}>Welcome back</Text>
-              <Text style={styles.loginTitle}>ログイン</Text>
-              <Text style={styles.loginLead}>
-                メールアドレスで続行して、あなたのメモ一覧へすぐに進めます。
-              </Text>
-            </View>
+              <View style={styles.loginHeading}>
+                <Text style={styles.kicker}>Welcome back</Text>
+                <Text style={styles.loginTitle}>ログイン</Text>
+                <Text style={styles.loginLead}>
+                  メールアドレスで続行して、あなたのメモ一覧へすぐに進めます。
+                </Text>
+              </View>
 
-            <View style={styles.loginForm}>
-              <TextField
-                autoCapitalize="none"
-                autoComplete="email"
-                autoCorrect={false}
-                editable={!loginLoading}
-                inputMode="email"
-                label="メールアドレス"
-                onChangeText={setEmail}
-                placeholder="you@example.com"
-                textContentType="emailAddress"
-                value={email}
-              />
+              <View style={styles.loginForm}>
+                <TextField
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  autoCorrect={false}
+                  editable={!loginLoading}
+                  inputMode="email"
+                  label="メールアドレス"
+                  onChangeText={setEmail}
+                  placeholder="you@example.com"
+                  textContentType="emailAddress"
+                  value={email}
+                />
 
-              <TextField
-                autoCapitalize="none"
-                autoComplete="current-password"
-                editable={!loginLoading}
-                label="パスワード"
-                onChangeText={setPassword}
-                placeholder="8文字以上"
-                secureTextEntry
-                textContentType="password"
-                value={password}
-              />
-            </View>
+                <TextField
+                  autoCapitalize="none"
+                  autoComplete="current-password"
+                  editable={!loginLoading}
+                  label="パスワード"
+                  onChangeText={setPassword}
+                  placeholder="8文字以上"
+                  secureTextEntry
+                  textContentType="password"
+                  value={password}
+                />
+              </View>
 
-            {loginError ? (
-              <Text style={styles.loginError}>{loginError}</Text>
-            ) : null}
+              {loginError ? (
+                <Text style={styles.loginError}>{loginError}</Text>
+              ) : null}
 
-            <Button
-              loading={loginLoading}
-              onPress={handleLogin}
-              style={styles.fullButton}
-            >
-              メールアドレスでログイン
-            </Button>
-          </Card>
+              <Button
+                loading={loginLoading}
+                onPress={handleLogin}
+                style={styles.fullButton}
+              >
+                メールアドレスでログイン
+              </Button>
+            </Card>
+          </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
     );
@@ -1207,6 +1829,16 @@ export default function App() {
               戻る
             </Button>
             <View style={styles.detailActions}>
+              <Button
+                disabled={!selectedPost}
+                onPress={() => {
+                  void copySelectedPost();
+                }}
+                style={styles.toolButton}
+                variant="secondary"
+              >
+                {copied ? "コピー済み" : "コピー"}
+              </Button>
               <Button
                 disabled={!selectedPost || detailLoading || deleting}
                 onPress={handleEdit}
@@ -1273,10 +1905,13 @@ export default function App() {
               {detailError ? (
                 <Text style={styles.formError}>{detailError}</Text>
               ) : null}
+              {copied ? (
+                <Text style={styles.copyFeedback}>コピーしました</Text>
+              ) : null}
 
-              <Text style={styles.detailBody}>{selectedPost.content}</Text>
+              <TodoContentDisplay content={selectedPost.content} />
 
-              <View style={styles.tagRow}>
+              <View style={[styles.tagRow, styles.detailTagRow]}>
                 {selectedPost.tags.length > 0 ? (
                   selectedPost.tags.map((tag) => (
                     <Badge key={tag.id} variant="tag">
@@ -1310,7 +1945,7 @@ export default function App() {
             <Text style={styles.kicker}>Memo workspace</Text>
             <Text style={styles.title}>メモ一覧</Text>
             <Text style={styles.postsSummary}>
-              {posts.length}件のメモ
+              {posts.length}件のメモ / 公開 {publishedCount}件 / 非公開 {privateCount}件
             </Text>
           </View>
         </View>
@@ -1338,6 +1973,109 @@ export default function App() {
           </Button>
         </Card>
 
+        <Card style={[styles.postsControls, styles.flatSurface]}>
+          <View style={styles.searchCompactRow}>
+            <TextInput
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChangeText={setQuery}
+              placeholder="タイトル、本文、タグで検索"
+              placeholderTextColor="#a0a8b5"
+              style={styles.searchInputCompact}
+              value={query}
+            />
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setFiltersOpen((current) => !current)}
+              style={({ pressed }) => [
+                styles.filterToggle,
+                pressed ? styles.buttonPressed : undefined,
+              ]}
+            >
+              <Text style={styles.filterToggleText}>
+                {filtersOpen ? "閉じる" : "絞り込み"}
+              </Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.activeFilterRow}>
+            <Text style={styles.activeFilterChip}>表示: {selectedFilterLabel}</Text>
+            <Text style={styles.activeFilterChip}>並び替え: {selectedSortLabel}</Text>
+          </View>
+
+          {filtersOpen ? (
+            <View style={styles.compactFilters}>
+              <View style={styles.controlGroup}>
+                <Text style={styles.controlLabel}>表示</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.filterChipScroll}
+                >
+                  {statusFilters.map((filter) => (
+                    <Pressable
+                      accessibilityRole="button"
+                      key={filter.value}
+                      onPress={() => setSelectedFilter(filter.value)}
+                      style={[
+                        styles.filterChip,
+                        selectedFilter === filter.value
+                          ? styles.filterChipActive
+                          : undefined,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.filterChipText,
+                          selectedFilter === filter.value
+                            ? styles.filterChipTextActive
+                            : undefined,
+                        ]}
+                      >
+                        {filter.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+
+              <View style={styles.controlGroup}>
+                <Text style={styles.controlLabel}>並び替え</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.filterChipScroll}
+                >
+                  {sortOptions.map((option) => (
+                    <Pressable
+                      accessibilityRole="button"
+                      key={option.value}
+                      onPress={() => setSortMode(option.value)}
+                      style={[
+                        styles.filterChip,
+                        sortMode === option.value
+                          ? styles.filterChipActive
+                          : undefined,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.filterChipText,
+                          sortMode === option.value
+                            ? styles.filterChipTextActive
+                            : undefined,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            </View>
+          ) : null}
+        </Card>
+
         {loading ? (
           <View style={styles.centerState}>
             <ActivityIndicator color="#2563eb" size="large" />
@@ -1362,10 +2100,29 @@ export default function App() {
               新規ボタンから最初のメモを作成できます。
             </Text>
           </View>
+        ) : filteredPosts.length === 0 ? (
+          <View style={styles.centerState}>
+            <Text style={styles.emptyTitle}>該当するメモが見つかりませんでした</Text>
+            <Text style={styles.emptyText}>
+              検索キーワードや公開ステータスを変えると、別のメモが見つかるかもしれません。
+            </Text>
+            <Button
+              onPress={() => {
+                setQuery("");
+                setSelectedFilter("all");
+                setSortMode("updated-desc");
+                setFiltersOpen(false);
+              }}
+              style={styles.retryButton}
+              variant="secondary"
+            >
+              条件をリセット
+            </Button>
+          </View>
         ) : (
           <FlatList
             contentContainerStyle={styles.listContent}
-            data={posts}
+            data={filteredPosts}
             keyExtractor={(item) => String(item.id)}
             onRefresh={handleRefresh}
             refreshing={refreshing}
@@ -1396,17 +2153,25 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     paddingHorizontal: spacing.lg,
-    paddingTop: 28,
+    paddingTop: 22,
   },
   loginScreen: {
     flex: 1,
-    justifyContent: "center",
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 28,
   },
   loginPanel: {
     backgroundColor: colors.surface,
     padding: 24,
+  },
+  flatSurface: {
+    elevation: 0,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+  },
+  loginScrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 28,
   },
   landingContent: {
     paddingBottom: 42,
@@ -1530,7 +2295,7 @@ const styles = StyleSheet.create({
   },
   formContent: {
     paddingHorizontal: 10,
-    paddingBottom: 36,
+    paddingBottom: 96,
     paddingTop: 22,
   },
   fullButton: {
@@ -1563,7 +2328,7 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   header: {
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   kicker: {
     ...typography.eyebrow,
@@ -1582,8 +2347,101 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
-    marginBottom: 18,
-    padding: 12,
+    marginBottom: 10,
+    padding: 10,
+  },
+  postsControls: {
+    backgroundColor: "rgba(255, 255, 255, 0.72)",
+    borderRadius: radius.md,
+    gap: 8,
+    marginBottom: 12,
+    padding: 10,
+  },
+  searchCompactRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  searchInputCompact: {
+    backgroundColor: colors.surfaceStrong,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    color: colors.text,
+    flex: 1,
+    fontSize: 15,
+    minHeight: 42,
+    paddingHorizontal: 12,
+  },
+  filterToggle: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceStrong,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: 12,
+  },
+  filterToggleText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  activeFilterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  activeFilterChip: {
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    color: colors.textSoft,
+    fontSize: 11,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  compactFilters: {
+    gap: 10,
+    paddingTop: 4,
+  },
+  controlGroup: {
+    gap: 7,
+  },
+  controlLabel: {
+    color: colors.textSoft,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  filterChipScroll: {
+    gap: 8,
+    paddingRight: 4,
+  },
+  filterChip: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceStrong,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 32,
+    paddingHorizontal: 12,
+  },
+  filterChipActive: {
+    backgroundColor: colors.text,
+    borderColor: colors.text,
+  },
+  filterChipText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  filterChipTextActive: {
+    color: colors.white,
   },
   formActions: {
     flexDirection: "row",
@@ -1651,8 +2509,8 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   memoCard: {
-    marginBottom: 14,
-    minHeight: 250,
+    marginBottom: 12,
+    minHeight: 224,
   },
   memoCardMain: {
     flex: 1,
@@ -1677,6 +2535,43 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 24,
     marginTop: 12,
+  },
+  cardContentPreview: {
+    gap: 5,
+    marginTop: 12,
+  },
+  cardContentPreviewText: {
+    color: colors.textMuted,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  cardTodoPreviewLine: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 7,
+    minHeight: 22,
+  },
+  cardTodoCheckbox: {
+    alignItems: "center",
+    borderColor: colors.borderStrong,
+    borderRadius: 4,
+    borderWidth: 1,
+    height: 16,
+    justifyContent: "center",
+    marginTop: 3,
+    width: 16,
+  },
+  cardTodoCheckboxMark: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: "900",
+    lineHeight: 13,
+  },
+  cardTodoPreviewText: {
+    color: colors.textMuted,
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 22,
   },
   tagRow: {
     flexDirection: "row",
@@ -1713,7 +2608,7 @@ const styles = StyleSheet.create({
   },
   detailContent: {
     paddingHorizontal: 10,
-    paddingBottom: 36,
+    paddingBottom: 108,
     paddingTop: 28,
   },
   detailTopBar: {
@@ -1723,17 +2618,21 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 1,
     flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
     justifyContent: "space-between",
     marginBottom: 18,
     padding: 8,
-    ...shadows.soft,
   },
   detailActions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
   },
   articleCard: {
     backgroundColor: "rgba(255, 255, 255, 0.9)",
+    marginBottom: 34,
+    paddingBottom: 30,
   },
   articleHeader: {
     paddingHorizontal: 22,
@@ -1758,7 +2657,8 @@ const styles = StyleSheet.create({
     lineHeight: 30,
     minHeight: 180,
     paddingHorizontal: 22,
-    paddingVertical: 24,
+    paddingTop: 24,
+    paddingBottom: 34,
   },
   postMetaGrid: {
     borderTopColor: colors.border,
@@ -1789,6 +2689,64 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginBottom: 10,
     paddingHorizontal: 22,
+  },
+  copyFeedback: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: "900",
+    marginBottom: 10,
+    paddingHorizontal: 22,
+  },
+  todoContent: {
+    gap: 8,
+    minHeight: 180,
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 34,
+  },
+  todoParagraph: {
+    color: colors.text,
+    fontSize: 16,
+    lineHeight: 30,
+  },
+  todoLine: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 8,
+    minHeight: 32,
+  },
+  todoLineChecked: {
+    opacity: 0.72,
+  },
+  todoCheckbox: {
+    alignItems: "center",
+    borderColor: colors.borderStrong,
+    borderRadius: 4,
+    borderWidth: 1,
+    height: 20,
+    justifyContent: "center",
+    marginTop: 5,
+    width: 20,
+  },
+  todoCheckboxChecked: {
+    backgroundColor: "rgba(15, 118, 110, 0.12)",
+    borderColor: colors.accent,
+  },
+  todoCheckboxMark: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: "900",
+    lineHeight: 16,
+  },
+  todoText: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 16,
+    lineHeight: 30,
+  },
+  todoTextChecked: {
+    color: colors.textSoft,
+    textDecorationLine: "line-through",
   },
   editorTopbar: {
     alignItems: "flex-start",
@@ -1830,16 +2788,20 @@ const styles = StyleSheet.create({
     color: colors.primaryStrong,
   },
   aiPanel: {
-    backgroundColor: "rgba(219, 234, 254, 0.36)",
-    borderColor: "rgba(37, 99, 235, 0.14)",
-    marginBottom: 14,
-    padding: 14,
+    backgroundColor: "rgba(219, 234, 254, 0.28)",
+    borderColor: "rgba(37, 99, 235, 0.12)",
+    borderRadius: radius.md,
+    marginBottom: 12,
+    padding: 0,
   },
   aiPanelHeader: {
     alignItems: "center",
     flexDirection: "row",
     gap: 12,
     justifyContent: "space-between",
+    minHeight: 58,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
   },
   aiPanelKicker: {
     color: colors.primaryStrong,
@@ -1855,46 +2817,42 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginTop: 6,
   },
+  aiHeaderRight: {
+    alignItems: "flex-end",
+    justifyContent: "center",
+    minWidth: 48,
+  },
+  aiToggleText: {
+    color: colors.primaryStrong,
+    fontSize: 13,
+    fontWeight: "900",
+  },
   aiButtonRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
-    marginTop: 12,
+    paddingBottom: 12,
+    paddingHorizontal: 14,
   },
   aiTaskButton: {
     flexGrow: 1,
     minWidth: 92,
+  },
+  aiSuccessText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: "900",
+    lineHeight: 20,
+    paddingBottom: 12,
+    paddingHorizontal: 14,
   },
   aiErrorText: {
     color: colors.danger,
     fontSize: 13,
     fontWeight: "800",
     lineHeight: 20,
-    marginTop: 12,
-  },
-  aiResultBox: {
-    backgroundColor: colors.surfaceStrong,
-    borderColor: "rgba(37, 99, 235, 0.14)",
-    borderRadius: radius.md,
-    borderWidth: 1,
-    marginTop: 12,
-    padding: 14,
-  },
-  aiResultLabel: {
-    color: colors.primaryStrong,
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 0.8,
-    marginBottom: 8,
-    textTransform: "uppercase",
-  },
-  aiResultText: {
-    color: colors.textMuted,
-    fontSize: 15,
-    lineHeight: 26,
-  },
-  aiApplyButton: {
-    marginTop: 12,
+    paddingBottom: 12,
+    paddingHorizontal: 14,
   },
   publishPill: {
     alignItems: "center",
@@ -1941,13 +2899,58 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "900",
   },
-  editorBodyInput: {
+  todoEditor: {
+    minHeight: 360,
+    paddingBottom: 28,
+  },
+  todoEditorToolbar: {
+    backgroundColor: "rgba(240, 253, 250, 0.58)",
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  todoToolbarButton: {
+    flexGrow: 1,
+    minHeight: 38,
+    minWidth: 132,
+  },
+  todoEditorLines: {
+    gap: 2,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+  },
+  todoEditorLine: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 8,
+    minHeight: 42,
+    paddingVertical: 2,
+  },
+  todoEditorLineChecked: {
+    opacity: 0.74,
+  },
+  todoCheckButton: {
+    alignItems: "center",
+    height: 40,
+    justifyContent: "center",
+    width: 28,
+  },
+  todoTextSpacer: {
+    width: 28,
+  },
+  todoEditorInput: {
     color: colors.text,
+    flex: 1,
     fontSize: 16,
     lineHeight: 30,
-    minHeight: 300,
-    paddingHorizontal: 22,
-    paddingVertical: 20,
+    minHeight: 40,
+    paddingHorizontal: 0,
+    paddingTop: 5,
+    paddingBottom: 5,
   },
   editorTagsInput: {
     borderTopColor: colors.border,
@@ -1957,5 +2960,9 @@ const styles = StyleSheet.create({
     minHeight: 58,
     paddingHorizontal: 22,
     paddingVertical: 16,
+  },
+  detailTagRow: {
+    paddingHorizontal: 22,
+    paddingTop: 4,
   },
 });

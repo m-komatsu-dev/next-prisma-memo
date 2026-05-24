@@ -32,7 +32,13 @@ export type MobileApiErrorResponse = {
   error: string;
 };
 
-export type MobileAiMode = "summarize" | "improve" | "ideas";
+export type MobileAiMode =
+  | "summarize"
+  | "title"
+  | "tags"
+  | "rewrite"
+  | "improve"
+  | "ideas";
 
 export type MobileAiGenerateResponse = {
   result: string;

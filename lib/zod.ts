@@ -195,7 +195,7 @@ export const mobileAiGenerateRequestSchema = z.object({
   content: aiContentSchema
     .transform((value) => value.trim())
     .refine((value) => value.length > 0, "AIに渡す本文が空です。"),
-  mode: z.enum(["summarize", "improve", "ideas"], {
+  mode: z.enum(["summarize", "title", "tags", "rewrite", "improve", "ideas"], {
     error: "AI処理の種類が正しくありません。",
   }),
 });

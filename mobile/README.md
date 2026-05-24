@@ -1,60 +1,98 @@
 # My Memo Mobile
 
-Expo + React Native + TypeScript のスマホアプリです。既存の Next.js アプリを API サーバーとして使い、まずはメモ一覧だけを表示します。
+Expo + React Native + TypeScript のモバイルアプリです。Next.jsアプリをAPIサーバーとして利用し、`/api/mobile/*` をBearer Token付きで呼び出します。
 
-Expo Goでの確認を優先するため、Expo SDK 54系の安定構成に合わせています。
+## 現在できること
+
+- Web版に近い初期概要画面
+- メールアドレス + パスワードログイン
+- Bearer Token認証
+- メモ一覧
+- メモ詳細
+- メモ作成
+- メモ編集
+- メモ削除
+- 作成/編集画面の自動保存
+- タグ表示
+- Todo形式メモの表示
+- AI Assistant
+  - 要約
+  - リライト
+  - アイデア生成
+  - 生成結果の本文への反映
+
+Google/GitHubログイン、refresh token、ApiSessionは未実装です。
 
 ## セットアップ
+
+リポジトリルートでNext.jsアプリを先にセットアップしてください。
+
+```bash
+npm install
+npm run dev
+```
+
+別ターミナルでmobile側を準備します。
 
 ```bash
 cd mobile
 npm install
-cp .env.example .env
-npm run start
 ```
 
-`.env` に API サーバーのURLを設定します。
+`mobile/.env` を作成します。
 
-```bash
+```env
 EXPO_PUBLIC_API_BASE_URL=http://localhost:3000
 ```
 
-iOSシミュレーターや実機から Mac 上の Next.js 開発サーバーへ接続する場合、`localhost` ではなく開発PCのLAN IPを指定してください。
+iOSシミュレーターや実機からMac上のNext.js開発サーバーへ接続する場合、`localhost` ではなく開発PCのLAN IPを指定してください。
 
-```bash
+```env
 EXPO_PUBLIC_API_BASE_URL=http://192.168.1.10:3000
 ```
 
 AndroidエミュレーターでホストPCの開発サーバーへ接続する場合は、環境により次のURLを使います。
 
-```bash
+```env
 EXPO_PUBLIC_API_BASE_URL=http://10.0.2.2:3000
 ```
 
 ## 起動
 
-Next.js 側を先に起動します。
-
 ```bash
-npm run dev
-```
-
-別ターミナルで mobile 側を起動します。
-
-```bash
-cd mobile
 npm run start
 ```
 
-## 現在の制限
+型チェック:
 
-現在の `/api/mobile/posts` は NextAuth/Auth.js のログインCookieを必要とします。そのため、React Native から直接呼び出すと `401` になる可能性があります。
+```bash
+npm run typecheck
+```
 
-この段階では、画面構成と API 呼び出し処理だけを用意しています。React Native から安定して利用するには、次の段階でモバイル向け認証を追加してください。
+## 認証
 
-候補:
+モバイル版は `/api/mobile/auth/login` にメールアドレスとパスワードを送信し、成功時に返る `accessToken` をExpo SecureStoreに保存します。
 
-- モバイル用の email/password ログインAPIを追加する
-- access token / refresh token を発行する
-- React Native 側で token を安全に保存する
-- `/api/mobile/*` が Cookie または Bearer token のどちらでも認証できるようにする
+以降のAPI呼び出しでは次のヘッダーを付けます。
+
+```http
+Authorization: Bearer <accessToken>
+```
+
+## 利用するAPI
+
+| Method | Path | 内容 |
+| --- | --- | --- |
+| `POST` | `/api/mobile/auth/login` | ログイン |
+| `GET` | `/api/mobile/posts` | メモ一覧 |
+| `POST` | `/api/mobile/posts` | メモ作成 |
+| `GET` | `/api/mobile/posts/[id]` | メモ詳細 |
+| `PATCH` | `/api/mobile/posts/[id]` | メモ更新 |
+| `DELETE` | `/api/mobile/posts/[id]` | メモ削除 |
+| `POST` | `/api/mobile/ai/generate` | AI生成 |
+
+AI生成はNext.js側のRoute Handler経由で実行されます。Gemini APIキーはmobile側に置きません。
+
+## 注意
+
+Node.js v24系の環境では、Expo CLIが `ERR_SOCKET_BAD_PORT` で起動に失敗する場合があります。その場合はExpoが対応しているLTS系Node.jsで確認してください。
