@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { buildTagsConnectOrCreate } from "@/lib/post-tags";
+import { mobileCorsOptions, withMobileCors } from "@/lib/mobile-cors";
 import { memoListPostSelect, postDetailSelect } from "@/lib/post-selects";
 import { prisma } from "@/lib/prisma";
 import { logServerError } from "@/lib/server-errors";
@@ -9,11 +10,18 @@ import {
 } from "@/lib/zod";
 import { NextResponse } from "next/server";
 
-export async function GET() {
+export function OPTIONS(request: Request) {
+  return mobileCorsOptions(request);
+}
+
+export async function GET(request: Request) {
   const session = await auth();
 
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "ログインが必要です。" }, { status: 401 });
+    return withMobileCors(
+      request,
+      NextResponse.json({ error: "ログインが必要です。" }, { status: 401 }),
+    );
   }
 
   try {
@@ -23,30 +31,36 @@ export async function GET() {
       orderBy: { updatedAt: "desc" },
     });
 
-    return NextResponse.json({
-      posts: posts.map((post) => ({
-        id: post.id,
-        title: post.title,
-        content: post.content,
-        // TodoはDBモデルではなく、既存どおりcontentからパースする設計です。
-        published: post.published,
-        createdAt: post.createdAt.toISOString(),
-        updatedAt: post.updatedAt.toISOString(),
-        tags: post.tags.map((tag) => ({
-          id: tag.id,
-          name: tag.name,
+    return withMobileCors(
+      request,
+      NextResponse.json({
+        posts: posts.map((post) => ({
+          id: post.id,
+          title: post.title,
+          content: post.content,
+          // TodoはDBモデルではなく、既存どおりcontentからパースする設計です。
+          published: post.published,
+          createdAt: post.createdAt.toISOString(),
+          updatedAt: post.updatedAt.toISOString(),
+          tags: post.tags.map((tag) => ({
+            id: tag.id,
+            name: tag.name,
+          })),
         })),
-      })),
-    });
+      }),
+    );
   } catch (error) {
     logServerError(error, {
       action: "mobileListPosts",
       userId: session.user.id,
     });
 
-    return NextResponse.json(
-      { error: "メモの取得に失敗しました。" },
-      { status: 500 },
+    return withMobileCors(
+      request,
+      NextResponse.json(
+        { error: "メモの取得に失敗しました。" },
+        { status: 500 },
+      ),
     );
   }
 }
@@ -55,7 +69,10 @@ export async function POST(request: Request) {
   const session = await auth();
 
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "ログインが必要です。" }, { status: 401 });
+    return withMobileCors(
+      request,
+      NextResponse.json({ error: "ログインが必要です。" }, { status: 401 }),
+    );
   }
 
   let body: unknown;
@@ -63,9 +80,12 @@ export async function POST(request: Request) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json(
-      { error: "リクエスト本文の形式が正しくありません。" },
-      { status: 400 },
+    return withMobileCors(
+      request,
+      NextResponse.json(
+        { error: "リクエスト本文の形式が正しくありません。" },
+        { status: 400 },
+      ),
     );
   }
 
@@ -82,9 +102,12 @@ export async function POST(request: Request) {
   });
 
   if (!validatedFields.success) {
-    return NextResponse.json(
-      { error: getFirstZodErrorMessage(validatedFields.error) },
-      { status: 400 },
+    return withMobileCors(
+      request,
+      NextResponse.json(
+        { error: getFirstZodErrorMessage(validatedFields.error) },
+        { status: 400 },
+      ),
     );
   }
 
@@ -104,30 +127,36 @@ export async function POST(request: Request) {
       select: postDetailSelect,
     });
 
-    return NextResponse.json({
-      post: {
-        id: post.id,
-        title: post.title,
-        content: post.content,
-        // TodoはDBモデルではなく、既存どおりcontentからパースする設計です。
-        published: post.published,
-        createdAt: post.createdAt.toISOString(),
-        updatedAt: post.updatedAt.toISOString(),
-        tags: post.tags.map((tag) => ({
-          id: tag.id,
-          name: tag.name,
-        })),
-      },
-    });
+    return withMobileCors(
+      request,
+      NextResponse.json({
+        post: {
+          id: post.id,
+          title: post.title,
+          content: post.content,
+          // TodoはDBモデルではなく、既存どおりcontentからパースする設計です。
+          published: post.published,
+          createdAt: post.createdAt.toISOString(),
+          updatedAt: post.updatedAt.toISOString(),
+          tags: post.tags.map((tag) => ({
+            id: tag.id,
+            name: tag.name,
+          })),
+        },
+      }),
+    );
   } catch (error) {
     logServerError(error, {
       action: "mobileCreatePost",
       userId: session.user.id,
     });
 
-    return NextResponse.json(
-      { error: "メモの作成に失敗しました。" },
-      { status: 500 },
+    return withMobileCors(
+      request,
+      NextResponse.json(
+        { error: "メモの作成に失敗しました。" },
+        { status: 500 },
+      ),
     );
   }
 }

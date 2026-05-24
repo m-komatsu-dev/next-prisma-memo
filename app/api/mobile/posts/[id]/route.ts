@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { buildTagsConnectOrCreate } from "@/lib/post-tags";
+import { mobileCorsOptions, withMobileCors } from "@/lib/mobile-cors";
 import { postDetailSelect } from "@/lib/post-selects";
 import { prisma } from "@/lib/prisma";
 import { logServerError } from "@/lib/server-errors";
@@ -16,20 +17,30 @@ type MobilePostDetailRouteContext = {
   }>;
 };
 
-export async function GET(_request: Request, { params }: MobilePostDetailRouteContext) {
+export function OPTIONS(request: Request) {
+  return mobileCorsOptions(request);
+}
+
+export async function GET(request: Request, { params }: MobilePostDetailRouteContext) {
   const session = await auth();
 
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "ログインが必要です。" }, { status: 401 });
+    return withMobileCors(
+      request,
+      NextResponse.json({ error: "ログインが必要です。" }, { status: 401 }),
+    );
   }
 
   const { id } = await params;
   const validatedPostId = postIdValueSchema.safeParse(id);
 
   if (!validatedPostId.success) {
-    return NextResponse.json(
-      { error: "メモIDの形式が正しくありません。" },
-      { status: 400 },
+    return withMobileCors(
+      request,
+      NextResponse.json(
+        { error: "メモIDの形式が正しくありません。" },
+        { status: 400 },
+      ),
     );
   }
 
@@ -45,27 +56,33 @@ export async function GET(_request: Request, { params }: MobilePostDetailRouteCo
     });
 
     if (!post) {
-      return NextResponse.json(
-        { error: "メモが見つかりません。" },
-        { status: 404 },
+      return withMobileCors(
+        request,
+        NextResponse.json(
+          { error: "メモが見つかりません。" },
+          { status: 404 },
+        ),
       );
     }
 
-    return NextResponse.json({
-      post: {
-        id: post.id,
-        title: post.title,
-        content: post.content,
-        // TodoはDBモデルではなく、既存どおりcontentからパースする設計です。
-        published: post.published,
-        createdAt: post.createdAt.toISOString(),
-        updatedAt: post.updatedAt.toISOString(),
-        tags: post.tags.map((tag) => ({
-          id: tag.id,
-          name: tag.name,
-        })),
-      },
-    });
+    return withMobileCors(
+      request,
+      NextResponse.json({
+        post: {
+          id: post.id,
+          title: post.title,
+          content: post.content,
+          // TodoはDBモデルではなく、既存どおりcontentからパースする設計です。
+          published: post.published,
+          createdAt: post.createdAt.toISOString(),
+          updatedAt: post.updatedAt.toISOString(),
+          tags: post.tags.map((tag) => ({
+            id: tag.id,
+            name: tag.name,
+          })),
+        },
+      }),
+    );
   } catch (error) {
     logServerError(error, {
       action: "mobileGetPostDetail",
@@ -73,9 +90,12 @@ export async function GET(_request: Request, { params }: MobilePostDetailRouteCo
       postId,
     });
 
-    return NextResponse.json(
-      { error: "メモの取得に失敗しました。" },
-      { status: 500 },
+    return withMobileCors(
+      request,
+      NextResponse.json(
+        { error: "メモの取得に失敗しました。" },
+        { status: 500 },
+      ),
     );
   }
 }
@@ -87,16 +107,22 @@ export async function PATCH(
   const session = await auth();
 
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "ログインが必要です。" }, { status: 401 });
+    return withMobileCors(
+      request,
+      NextResponse.json({ error: "ログインが必要です。" }, { status: 401 }),
+    );
   }
 
   const { id } = await params;
   const validatedPostId = postIdValueSchema.safeParse(id);
 
   if (!validatedPostId.success) {
-    return NextResponse.json(
-      { error: "メモIDの形式が正しくありません。" },
-      { status: 400 },
+    return withMobileCors(
+      request,
+      NextResponse.json(
+        { error: "メモIDの形式が正しくありません。" },
+        { status: 400 },
+      ),
     );
   }
 
@@ -105,9 +131,12 @@ export async function PATCH(
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json(
-      { error: "リクエスト本文の形式が正しくありません。" },
-      { status: 400 },
+    return withMobileCors(
+      request,
+      NextResponse.json(
+        { error: "リクエスト本文の形式が正しくありません。" },
+        { status: 400 },
+      ),
     );
   }
 
@@ -125,9 +154,12 @@ export async function PATCH(
   });
 
   if (!validatedFields.success) {
-    return NextResponse.json(
-      { error: getFirstZodErrorMessage(validatedFields.error) },
-      { status: 400 },
+    return withMobileCors(
+      request,
+      NextResponse.json(
+        { error: getFirstZodErrorMessage(validatedFields.error) },
+        { status: 400 },
+      ),
     );
   }
 
@@ -143,9 +175,12 @@ export async function PATCH(
     });
 
     if (!existingPost) {
-      return NextResponse.json(
-        { error: "メモが見つかりません。" },
-        { status: 404 },
+      return withMobileCors(
+        request,
+        NextResponse.json(
+          { error: "メモが見つかりません。" },
+          { status: 404 },
+        ),
       );
     }
 
@@ -166,21 +201,24 @@ export async function PATCH(
       select: postDetailSelect,
     });
 
-    return NextResponse.json({
-      post: {
-        id: post.id,
-        title: post.title,
-        content: post.content,
-        // TodoはDBモデルではなく、既存どおりcontentからパースする設計です。
-        published: post.published,
-        createdAt: post.createdAt.toISOString(),
-        updatedAt: post.updatedAt.toISOString(),
-        tags: post.tags.map((tag) => ({
-          id: tag.id,
-          name: tag.name,
-        })),
-      },
-    });
+    return withMobileCors(
+      request,
+      NextResponse.json({
+        post: {
+          id: post.id,
+          title: post.title,
+          content: post.content,
+          // TodoはDBモデルではなく、既存どおりcontentからパースする設計です。
+          published: post.published,
+          createdAt: post.createdAt.toISOString(),
+          updatedAt: post.updatedAt.toISOString(),
+          tags: post.tags.map((tag) => ({
+            id: tag.id,
+            name: tag.name,
+          })),
+        },
+      }),
+    );
   } catch (error) {
     logServerError(error, {
       action: "mobileUpdatePost",
@@ -188,30 +226,39 @@ export async function PATCH(
       postId,
     });
 
-    return NextResponse.json(
-      { error: "メモの更新に失敗しました。" },
-      { status: 500 },
+    return withMobileCors(
+      request,
+      NextResponse.json(
+        { error: "メモの更新に失敗しました。" },
+        { status: 500 },
+      ),
     );
   }
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: MobilePostDetailRouteContext,
 ) {
   const session = await auth();
 
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "ログインが必要です。" }, { status: 401 });
+    return withMobileCors(
+      request,
+      NextResponse.json({ error: "ログインが必要です。" }, { status: 401 }),
+    );
   }
 
   const { id } = await params;
   const validatedPostId = postIdValueSchema.safeParse(id);
 
   if (!validatedPostId.success) {
-    return NextResponse.json(
-      { error: "メモIDの形式が正しくありません。" },
-      { status: 400 },
+    return withMobileCors(
+      request,
+      NextResponse.json(
+        { error: "メモIDの形式が正しくありません。" },
+        { status: 400 },
+      ),
     );
   }
 
@@ -226,13 +273,16 @@ export async function DELETE(
     });
 
     if (result.count === 0) {
-      return NextResponse.json(
-        { error: "メモが見つかりません。" },
-        { status: 404 },
+      return withMobileCors(
+        request,
+        NextResponse.json(
+          { error: "メモが見つかりません。" },
+          { status: 404 },
+        ),
       );
     }
 
-    return NextResponse.json({ success: true });
+    return withMobileCors(request, NextResponse.json({ success: true }));
   } catch (error) {
     logServerError(error, {
       action: "mobileDeletePost",
@@ -240,9 +290,12 @@ export async function DELETE(
       postId,
     });
 
-    return NextResponse.json(
-      { error: "メモの削除に失敗しました。" },
-      { status: 500 },
+    return withMobileCors(
+      request,
+      NextResponse.json(
+        { error: "メモの削除に失敗しました。" },
+        { status: 500 },
+      ),
     );
   }
 }
