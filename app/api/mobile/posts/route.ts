@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { getMobileAuthUser } from "@/lib/mobile-auth";
 import { buildTagsConnectOrCreate } from "@/lib/post-tags";
 import { mobileCorsOptions, withMobileCors } from "@/lib/mobile-cors";
 import { memoListPostSelect, postDetailSelect } from "@/lib/post-selects";
@@ -15,9 +15,9 @@ export function OPTIONS(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const session = await auth();
+  const authUser = await getMobileAuthUser(request);
 
-  if (!session?.user?.id) {
+  if (!authUser) {
     return withMobileCors(
       request,
       NextResponse.json({ error: "ログインが必要です。" }, { status: 401 }),
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
 
   try {
     const posts = await prisma.post.findMany({
-      where: { authorId: session.user.id },
+      where: { authorId: authUser.id },
       select: memoListPostSelect,
       orderBy: { updatedAt: "desc" },
     });
@@ -52,7 +52,7 @@ export async function GET(request: Request) {
   } catch (error) {
     logServerError(error, {
       action: "mobileListPosts",
-      userId: session.user.id,
+      userId: authUser.id,
     });
 
     return withMobileCors(
@@ -66,9 +66,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const session = await auth();
+  const authUser = await getMobileAuthUser(request);
 
-  if (!session?.user?.id) {
+  if (!authUser) {
     return withMobileCors(
       request,
       NextResponse.json({ error: "ログインが必要です。" }, { status: 401 }),
@@ -119,7 +119,7 @@ export async function POST(request: Request) {
         title: payload.title.trim(),
         content: payload.content.trim(),
         published: payload.published,
-        authorId: session.user.id,
+        authorId: authUser.id,
         tags: {
           connectOrCreate: buildTagsConnectOrCreate(payload.tags),
         },
@@ -148,7 +148,7 @@ export async function POST(request: Request) {
   } catch (error) {
     logServerError(error, {
       action: "mobileCreatePost",
-      userId: session.user.id,
+      userId: authUser.id,
     });
 
     return withMobileCors(

@@ -2,14 +2,23 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   SafeAreaView,
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
+import { loginWithEmailPassword } from "./src/api/auth";
 import { fetchMobilePosts, MobileApiRequestError } from "./src/api/posts";
+import {
+  deleteStoredAccessToken,
+  getStoredAccessToken,
+  saveAccessToken,
+} from "./src/storage/auth-token";
 import type { MobilePost } from "./src/types/posts";
 
 const dateFormatter = new Intl.DateTimeFormat("ja-JP", {
@@ -88,13 +97,29 @@ function PostCard({ post }: { post: MobilePost }) {
 }
 
 export default function App() {
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [restoringToken, setRestoringToken] = useState(true);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState("");
   const [posts, setPosts] = useState<MobilePost[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [errorStatus, setErrorStatus] = useState<number | null>(null);
 
-  const loadPosts = useCallback(async (nextRefreshing = false) => {
+  const clearSession = useCallback(async (nextLoginError = "") => {
+    await deleteStoredAccessToken();
+    setAccessToken(null);
+    setPosts([]);
+    setError("");
+    setErrorStatus(null);
+    setPassword("");
+    setLoginError(nextLoginError);
+  }, []);
+
+  const loadPosts = useCallback(async (token: string, nextRefreshing = false) => {
     if (nextRefreshing) {
       setRefreshing(true);
     } else {
@@ -105,9 +130,17 @@ export default function App() {
     setErrorStatus(null);
 
     try {
-      const nextPosts = await fetchMobilePosts();
+      const nextPosts = await fetchMobilePosts(token);
       setPosts(nextPosts);
     } catch (caughtError) {
+      if (
+        caughtError instanceof MobileApiRequestError &&
+        caughtError.status === 401
+      ) {
+        await clearSession("ログインが必要です。再度ログインしてください。");
+        return;
+      }
+
       setErrorStatus(
         caughtError instanceof MobileApiRequestError
           ? (caughtError.status ?? null)
@@ -122,18 +155,168 @@ export default function App() {
       setLoading(false);
       setRefreshing(false);
     }
+  }, [clearSession]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function restoreToken() {
+      try {
+        const storedToken = await getStoredAccessToken();
+
+        if (active) {
+          setAccessToken(storedToken);
+        }
+      } catch {
+        if (active) {
+          setLoginError("保存済みログイン情報の読み込みに失敗しました。");
+        }
+      } finally {
+        if (active) {
+          setRestoringToken(false);
+        }
+      }
+    }
+
+    restoreToken();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      loadPosts();
-    }, 0);
+    if (!accessToken) {
+      return;
+    }
 
-    return () => clearTimeout(timeoutId);
-  }, [loadPosts]);
+    loadPosts(accessToken);
+  }, [accessToken, loadPosts]);
+
+  const handleLogin = useCallback(async () => {
+    const nextEmail = email.trim();
+
+    if (!nextEmail || !password) {
+      setLoginError("メールアドレスとパスワードを入力してください。");
+      return;
+    }
+
+    setLoginLoading(true);
+    setLoginError("");
+
+    try {
+      const result = await loginWithEmailPassword(nextEmail, password);
+      await saveAccessToken(result.accessToken);
+      setAccessToken(result.accessToken);
+      setPassword("");
+    } catch (caughtError) {
+      setLoginError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "ログインに失敗しました。",
+      );
+    } finally {
+      setLoginLoading(false);
+    }
+  }, [email, password]);
+
+  const handleRefresh = useCallback(() => {
+    if (!accessToken) {
+      setLoginError("ログインが必要です。");
+      return;
+    }
+
+    loadPosts(accessToken, true);
+  }, [accessToken, loadPosts]);
+
+  const handleLogout = useCallback(async () => {
+    await clearSession();
+  }, [clearSession]);
 
   const errorTitle =
     errorStatus === 401 ? "ログインが必要です" : "取得できませんでした";
+
+  if (restoringToken) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" />
+        <View style={styles.centerState}>
+          <ActivityIndicator color="#2563eb" size="large" />
+          <Text style={styles.stateText}>ログイン状態を確認しています</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!accessToken) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" />
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.loginScreen}
+        >
+          <View style={styles.loginPanel}>
+            <Text style={styles.kicker}>My Memo</Text>
+            <Text style={styles.loginTitle}>ログイン</Text>
+
+            <View style={styles.formField}>
+              <Text style={styles.label}>メールアドレス</Text>
+              <TextInput
+                autoCapitalize="none"
+                autoComplete="email"
+                autoCorrect={false}
+                editable={!loginLoading}
+                inputMode="email"
+                onChangeText={setEmail}
+                placeholder="you@example.com"
+                placeholderTextColor="#94a3b8"
+                style={styles.input}
+                textContentType="emailAddress"
+                value={email}
+              />
+            </View>
+
+            <View style={styles.formField}>
+              <Text style={styles.label}>パスワード</Text>
+              <TextInput
+                autoCapitalize="none"
+                autoComplete="current-password"
+                editable={!loginLoading}
+                onChangeText={setPassword}
+                placeholder="パスワード"
+                placeholderTextColor="#94a3b8"
+                secureTextEntry
+                style={styles.input}
+                textContentType="password"
+                value={password}
+              />
+            </View>
+
+            {loginError ? (
+              <Text style={styles.loginError}>{loginError}</Text>
+            ) : null}
+
+            <Pressable
+              accessibilityRole="button"
+              disabled={loginLoading}
+              onPress={handleLogin}
+              style={({ pressed }) => [
+                styles.loginButton,
+                pressed || loginLoading ? styles.buttonPressed : undefined,
+              ]}
+            >
+              {loginLoading ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <Text style={styles.loginButtonText}>ログイン</Text>
+              )}
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -144,16 +327,28 @@ export default function App() {
             <Text style={styles.kicker}>My Memo</Text>
             <Text style={styles.title}>メモ一覧</Text>
           </View>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => loadPosts(true)}
-            style={({ pressed }) => [
-              styles.refreshButton,
-              pressed ? styles.refreshButtonPressed : undefined,
-            ]}
-          >
-            <Text style={styles.refreshButtonText}>更新</Text>
-          </Pressable>
+          <View style={styles.headerActions}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={handleRefresh}
+              style={({ pressed }) => [
+                styles.refreshButton,
+                pressed ? styles.buttonPressed : undefined,
+              ]}
+            >
+              <Text style={styles.refreshButtonText}>更新</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={handleLogout}
+              style={({ pressed }) => [
+                styles.logoutButton,
+                pressed ? styles.buttonPressed : undefined,
+              ]}
+            >
+              <Text style={styles.logoutButtonText}>ログアウト</Text>
+            </Pressable>
+          </View>
         </View>
 
         {loading ? (
@@ -167,7 +362,7 @@ export default function App() {
             <Text style={styles.errorText}>{error}</Text>
             <Pressable
               accessibilityRole="button"
-              onPress={() => loadPosts()}
+              onPress={() => loadPosts(accessToken)}
               style={styles.retryButton}
             >
               <Text style={styles.retryButtonText}>再試行</Text>
@@ -185,7 +380,7 @@ export default function App() {
             contentContainerStyle={styles.listContent}
             data={posts}
             keyExtractor={(item) => String(item.id)}
-            onRefresh={() => loadPosts(true)}
+            onRefresh={handleRefresh}
             refreshing={refreshing}
             renderItem={({ item }) => <PostCard post={item} />}
           />
@@ -205,6 +400,64 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 18,
   },
+  loginScreen: {
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+  loginPanel: {
+    backgroundColor: "#ffffff",
+    borderColor: "#e5e7eb",
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 20,
+  },
+  loginTitle: {
+    color: "#111827",
+    fontSize: 28,
+    fontWeight: "800",
+    marginBottom: 24,
+    marginTop: 4,
+  },
+  formField: {
+    marginBottom: 16,
+  },
+  label: {
+    color: "#334155",
+    fontSize: 14,
+    fontWeight: "700",
+    marginBottom: 8,
+  },
+  input: {
+    backgroundColor: "#ffffff",
+    borderColor: "#cbd5e1",
+    borderRadius: 8,
+    borderWidth: 1,
+    color: "#111827",
+    fontSize: 16,
+    minHeight: 48,
+    paddingHorizontal: 14,
+  },
+  loginError: {
+    color: "#b91c1c",
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 14,
+  },
+  loginButton: {
+    alignItems: "center",
+    backgroundColor: "#111827",
+    borderRadius: 8,
+    justifyContent: "center",
+    minHeight: 48,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  loginButtonText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "800",
+  },
   header: {
     alignItems: "center",
     flexDirection: "row",
@@ -222,18 +475,35 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginTop: 4,
   },
+  headerActions: {
+    alignItems: "flex-end",
+    gap: 8,
+  },
   refreshButton: {
     backgroundColor: "#111827",
     borderRadius: 8,
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
-  refreshButtonPressed: {
+  logoutButton: {
+    backgroundColor: "#ffffff",
+    borderColor: "#cbd5e1",
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  buttonPressed: {
     opacity: 0.75,
   },
   refreshButtonText: {
     color: "#ffffff",
     fontSize: 14,
+    fontWeight: "700",
+  },
+  logoutButtonText: {
+    color: "#334155",
+    fontSize: 13,
     fontWeight: "700",
   },
   centerState: {

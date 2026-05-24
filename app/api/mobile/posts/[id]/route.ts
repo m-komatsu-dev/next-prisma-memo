@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { getMobileAuthUser } from "@/lib/mobile-auth";
 import { buildTagsConnectOrCreate } from "@/lib/post-tags";
 import { mobileCorsOptions, withMobileCors } from "@/lib/mobile-cors";
 import { postDetailSelect } from "@/lib/post-selects";
@@ -22,9 +22,9 @@ export function OPTIONS(request: Request) {
 }
 
 export async function GET(request: Request, { params }: MobilePostDetailRouteContext) {
-  const session = await auth();
+  const authUser = await getMobileAuthUser(request);
 
-  if (!session?.user?.id) {
+  if (!authUser) {
     return withMobileCors(
       request,
       NextResponse.json({ error: "ログインが必要です。" }, { status: 401 }),
@@ -50,7 +50,7 @@ export async function GET(request: Request, { params }: MobilePostDetailRouteCon
     const post = await prisma.post.findFirst({
       where: {
         id: postId,
-        authorId: session.user.id,
+        authorId: authUser.id,
       },
       select: postDetailSelect,
     });
@@ -86,7 +86,7 @@ export async function GET(request: Request, { params }: MobilePostDetailRouteCon
   } catch (error) {
     logServerError(error, {
       action: "mobileGetPostDetail",
-      userId: session.user.id,
+      userId: authUser.id,
       postId,
     });
 
@@ -104,9 +104,9 @@ export async function PATCH(
   request: Request,
   { params }: MobilePostDetailRouteContext,
 ) {
-  const session = await auth();
+  const authUser = await getMobileAuthUser(request);
 
-  if (!session?.user?.id) {
+  if (!authUser) {
     return withMobileCors(
       request,
       NextResponse.json({ error: "ログインが必要です。" }, { status: 401 }),
@@ -169,7 +169,7 @@ export async function PATCH(
     const existingPost = await prisma.post.findFirst({
       where: {
         id: postId,
-        authorId: session.user.id,
+        authorId: authUser.id,
       },
       select: { id: true },
     });
@@ -187,7 +187,7 @@ export async function PATCH(
     const post = await prisma.post.update({
       where: {
         id: postId,
-        authorId: session.user.id,
+        authorId: authUser.id,
       },
       data: {
         title: payload.title.trim(),
@@ -222,7 +222,7 @@ export async function PATCH(
   } catch (error) {
     logServerError(error, {
       action: "mobileUpdatePost",
-      userId: session.user.id,
+      userId: authUser.id,
       postId,
     });
 
@@ -240,9 +240,9 @@ export async function DELETE(
   request: Request,
   { params }: MobilePostDetailRouteContext,
 ) {
-  const session = await auth();
+  const authUser = await getMobileAuthUser(request);
 
-  if (!session?.user?.id) {
+  if (!authUser) {
     return withMobileCors(
       request,
       NextResponse.json({ error: "ログインが必要です。" }, { status: 401 }),
@@ -268,7 +268,7 @@ export async function DELETE(
     const result = await prisma.post.deleteMany({
       where: {
         id: postId,
-        authorId: session.user.id,
+        authorId: authUser.id,
       },
     });
 
@@ -286,7 +286,7 @@ export async function DELETE(
   } catch (error) {
     logServerError(error, {
       action: "mobileDeletePost",
-      userId: session.user.id,
+      userId: authUser.id,
       postId,
     });
 

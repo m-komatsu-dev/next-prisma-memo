@@ -24,15 +24,15 @@ function isMobileApiErrorResponse(value: unknown): value is MobileApiErrorRespon
   );
 }
 
-export async function fetchMobilePosts() {
+export async function fetchMobilePosts(accessToken: string) {
   if (!API_BASE_URL) {
     throw new Error("EXPO_PUBLIC_API_BASE_URL が設定されていません。");
   }
 
   const response = await fetch(`${API_BASE_URL}/api/mobile/posts`, {
-    credentials: "include",
     headers: {
       Accept: "application/json",
+      Authorization: `Bearer ${accessToken}`,
     },
   });
 

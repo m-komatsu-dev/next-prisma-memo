@@ -29,7 +29,10 @@ function applyMobileCorsHeaders(request: Request, response: NextResponse) {
     "Access-Control-Allow-Methods",
     "GET,POST,PATCH,DELETE,OPTIONS",
   );
-  response.headers.set("Access-Control-Allow-Headers", "Accept, Content-Type");
+  response.headers.set(
+    "Access-Control-Allow-Headers",
+    "Accept, Authorization, Content-Type",
+  );
   response.headers.set("Vary", "Origin");
 
   return response;
