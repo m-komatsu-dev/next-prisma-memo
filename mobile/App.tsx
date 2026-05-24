@@ -4,6 +4,7 @@ import {
   Alert,
   FlatList,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   SafeAreaView,
@@ -29,9 +30,29 @@ import {
   getStoredAccessToken,
   saveAccessToken,
 } from "./src/storage/auth-token";
+import { Badge, Button, Card, TextField } from "./src/components/ui";
+import { colors, radius, shadows, spacing, typography } from "./src/theme";
 import type { MobilePost, MobilePostPayload } from "./src/types/posts";
 
 type ViewMode = "list" | "detail" | "create" | "edit";
+type AuthViewMode = "landing" | "login";
+
+const features = [
+  {
+    title: "すぐに書ける",
+    description: "思いついた瞬間にメモを残し、あとから迷わず見返せます。",
+  },
+  {
+    title: "自分だけの一覧",
+    description: "ログインしたユーザーごとに、必要なメモへ素早くアクセスできます。",
+  },
+  {
+    title: "全世界へ共有",
+    description: "メモの設定を切り替えるだけで、全世界に公開できます。",
+  },
+];
+
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
 const dateFormatter = new Intl.DateTimeFormat("ja-JP", {
   dateStyle: "medium",
@@ -64,6 +85,73 @@ function getTagsInput(post?: MobilePost | null) {
   return post?.tags.map((tag) => tag.name).join(", ") ?? "";
 }
 
+function HomeLanding({
+  onLoginPress,
+  onRegisterPress,
+}: {
+  onLoginPress: () => void;
+  onRegisterPress: () => void;
+}) {
+  return (
+    <ScrollView contentContainerStyle={styles.landingContent}>
+      <View style={styles.brandRow}>
+        <View style={styles.brandMark}>
+          <Text style={styles.brandMarkText}>M</Text>
+        </View>
+        <Text style={styles.brandText}>My Memo App</Text>
+      </View>
+
+      <View style={styles.heroCopy}>
+        <Text style={styles.kicker}>My Memo App</Text>
+        <Text style={styles.heroTitle}>
+          思考を逃さず、すっきり整理するメモ空間。
+        </Text>
+        <Text style={styles.heroLead}>
+          日々のアイデア、タスク、学びを軽やかに残せるプライベートなメモアプリです。
+          ログインして、あなたのメモ一覧へすぐに進めます。
+        </Text>
+      </View>
+
+      <View style={styles.heroActions}>
+        <Button onPress={onLoginPress} style={styles.heroActionButton}>
+          ログインする
+        </Button>
+        <Button
+          onPress={onRegisterPress}
+          style={styles.heroActionButton}
+          variant="secondary"
+        >
+          新規登録
+        </Button>
+      </View>
+
+      <Card style={styles.heroStats}>
+        <View style={styles.heroStatItem}>
+          <Text style={styles.heroStatTitle}>Fast</Text>
+          <Text style={styles.heroStatText}>すぐ書ける導線</Text>
+        </View>
+        <View style={styles.heroStatItem}>
+          <Text style={styles.heroStatTitle}>Private</Text>
+          <Text style={styles.heroStatText}>自分のメモを管理</Text>
+        </View>
+        <View style={[styles.heroStatItem, styles.heroStatItemLast]}>
+          <Text style={styles.heroStatTitle}>Clean</Text>
+          <Text style={styles.heroStatText}>読み返しやすいUI</Text>
+        </View>
+      </Card>
+
+      <View style={styles.featureGrid}>
+        {features.map((feature) => (
+          <Card key={feature.title} style={styles.featureCard}>
+            <Text style={styles.featureTitle}>{feature.title}</Text>
+            <Text style={styles.featureText}>{feature.description}</Text>
+          </Card>
+        ))}
+      </View>
+    </ScrollView>
+  );
+}
+
 function PostCard({
   onPress,
   post,
@@ -80,47 +168,50 @@ function PostCard({
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.card,
-        pressed ? styles.buttonPressed : undefined,
-      ]}
+      style={({ pressed }) => [pressed ? styles.buttonPressed : undefined]}
     >
-      <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>{post.title}</Text>
-        <View
-          style={[
-            styles.statusBadge,
-            post.published ? styles.statusBadgePublic : undefined,
-          ]}
-        >
-          <Text
-            style={[
-              styles.statusBadgeText,
-              post.published ? styles.statusBadgeTextPublic : undefined,
-            ]}
-          >
-            {post.published ? "公開" : "非公開"}
+      <Card style={styles.memoCard}>
+        <View style={styles.memoCardMain}>
+          <View style={styles.cardBadgeRow}>
+            <Badge variant={post.published ? "public" : "default"}>
+              {post.published ? "公開" : "非公開"}
+            </Badge>
+          </View>
+
+          <Text style={styles.cardTitle} numberOfLines={2}>
+            {post.title}
           </Text>
-        </View>
-      </View>
 
-      <Text style={styles.cardContent} numberOfLines={4}>
-        {getPreview(post.content)}
-      </Text>
+          <Text style={styles.cardContent} numberOfLines={6}>
+            {getPreview(post.content)}
+          </Text>
 
-      <View style={styles.tagRow}>
-        {post.tags.length > 0 ? (
-          post.tags.map((tag) => (
-            <View key={tag.id} style={styles.tag}>
-              <Text style={styles.tagText}>#{tag.name}</Text>
+          <View style={styles.tagRow}>
+            {post.tags.length > 0 ? (
+              post.tags.map((tag) => (
+                <Badge key={tag.id} variant="tag">
+                  #{tag.name}
+                </Badge>
+              ))
+            ) : (
+              <Text style={styles.noTags}>タグなし</Text>
+            )}
+          </View>
+
+          <View style={styles.memoDates}>
+            <View style={styles.memoDateItem}>
+              <Text style={styles.memoDateLabel}>更新</Text>
+              <Text style={styles.memoDateValue}>{updatedAt}</Text>
             </View>
-          ))
-        ) : (
-          <Text style={styles.noTags}>タグなし</Text>
-        )}
-      </View>
-
-      <Text style={styles.updatedAt}>更新: {updatedAt}</Text>
+            <View style={styles.memoDateItem}>
+              <Text style={styles.memoDateLabel}>作成</Text>
+              <Text style={styles.memoDateValue}>
+                {formatUpdatedAt(post.createdAt)}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </Card>
     </Pressable>
   );
 }
@@ -163,94 +254,81 @@ function MemoForm({
         contentContainerStyle={styles.formContent}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.kicker}>My Memo</Text>
-        <Text style={styles.title}>
-          {mode === "create" ? "新規作成" : "メモ編集"}
-        </Text>
+        <View style={styles.editorTopbar}>
+          <View style={styles.editorHeading}>
+            <Text style={styles.kicker}>Memo editor</Text>
+            <Text style={styles.title}>
+              {mode === "create" ? "新規作成" : "メモ編集"}
+            </Text>
+          </View>
+          <View style={styles.publishPill}>
+            <Switch
+              disabled={saving}
+              onValueChange={setPublished}
+              value={published}
+            />
+            <Text style={styles.publishPillText}>
+              {published ? "公開" : "非公開"}
+            </Text>
+          </View>
+        </View>
 
-        <View style={styles.formField}>
-          <Text style={styles.label}>タイトル</Text>
+        <Card style={styles.editorSheet}>
           <TextInput
             editable={!saving}
             onChangeText={setTitle}
             placeholder="タイトル"
-            placeholderTextColor="#94a3b8"
-            style={styles.input}
+            placeholderTextColor="#a0a8b5"
+            style={styles.editorTitleInput}
             value={title}
           />
-        </View>
 
-        <View style={styles.formField}>
-          <Text style={styles.label}>本文</Text>
+          <View style={styles.editorToolbar}>
+            <Text style={styles.editorToolbarText}>本文</Text>
+          </View>
+
           <TextInput
             editable={!saving}
             multiline
             onChangeText={setContent}
-            placeholder="本文"
-            placeholderTextColor="#94a3b8"
-            style={[styles.input, styles.bodyInput]}
+            placeholder="本文を書き始める"
+            placeholderTextColor="#a0a8b5"
+            style={styles.editorBodyInput}
             textAlignVertical="top"
             value={content}
           />
-        </View>
 
-        <View style={styles.formField}>
-          <Text style={styles.label}>タグ</Text>
           <TextInput
             autoCapitalize="none"
             editable={!saving}
             onChangeText={setTags}
-            placeholder="仕事, アイデア"
-            placeholderTextColor="#94a3b8"
-            style={styles.input}
+            placeholder="タグ: React, 勉強, アイデア"
+            placeholderTextColor="#a0a8b5"
+            style={styles.editorTagsInput}
             value={tags}
           />
-          <Text style={styles.fieldHint}>カンマ区切りで入力します。</Text>
-        </View>
-
-        <View style={styles.switchRow}>
-          <View>
-            <Text style={styles.label}>公開設定</Text>
-            <Text style={styles.fieldHint}>
-              公開にするとWeb版と同じ公開状態になります。
-            </Text>
-          </View>
-          <Switch
-            disabled={saving}
-            onValueChange={setPublished}
-            value={published}
-          />
-        </View>
+        </Card>
 
         {error ? <Text style={styles.formError}>{error}</Text> : null}
 
         <View style={styles.formActions}>
-          <Pressable
-            accessibilityRole="button"
+          <Button
             disabled={saving}
             onPress={onCancel}
-            style={({ pressed }) => [
-              styles.secondaryButton,
-              pressed || saving ? styles.buttonPressed : undefined,
-            ]}
+            style={styles.formActionButton}
+            variant="secondary"
           >
-            <Text style={styles.secondaryButtonText}>キャンセル</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
+            キャンセル
+          </Button>
+          <Button
             disabled={saving}
+            loading={saving}
             onPress={handleSubmit}
-            style={({ pressed }) => [
-              styles.primaryButton,
-              pressed || saving ? styles.buttonPressed : undefined,
-            ]}
+            style={styles.formActionButton}
+            variant="dark"
           >
-            {saving ? (
-              <ActivityIndicator color="#ffffff" />
-            ) : (
-              <Text style={styles.primaryButtonText}>保存</Text>
-            )}
-          </Pressable>
+            {published ? "公開して保存" : "非公開で保存"}
+          </Button>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -260,6 +338,7 @@ function MemoForm({
 export default function App() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [restoringToken, setRestoringToken] = useState(true);
+  const [authViewMode, setAuthViewMode] = useState<AuthViewMode>("landing");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
@@ -289,6 +368,7 @@ export default function App() {
     setFormError("");
     setPassword("");
     setLoginError(nextLoginError);
+    setAuthViewMode(nextLoginError ? "login" : "landing");
   }, []);
 
   const handleAuthError = useCallback(
@@ -356,6 +436,7 @@ export default function App() {
       } catch {
         if (active) {
           setLoginError("保存済みログイン情報の読み込みに失敗しました。");
+          setAuthViewMode("login");
         }
       } finally {
         if (active) {
@@ -394,6 +475,7 @@ export default function App() {
       const result = await loginWithEmailPassword(nextEmail, password);
       await saveAccessToken(result.accessToken);
       setAccessToken(result.accessToken);
+      setAuthViewMode("landing");
       setPassword("");
     } catch (caughtError) {
       setLoginError(
@@ -418,6 +500,18 @@ export default function App() {
   const handleLogout = useCallback(async () => {
     await clearSession();
   }, [clearSession]);
+
+  const openRegisterPage = useCallback(() => {
+    if (!API_BASE_URL) {
+      Alert.alert(
+        "新規登録ページを開けません",
+        "EXPO_PUBLIC_API_BASE_URL が設定されていません。",
+      );
+      return;
+    }
+
+    void Linking.openURL(`${API_BASE_URL}/register`);
+  }, []);
 
   const openPostDetail = useCallback(
     async (post: MobilePost) => {
@@ -630,6 +724,18 @@ export default function App() {
   }
 
   if (!accessToken) {
+    if (authViewMode === "landing") {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <StatusBar barStyle="dark-content" />
+          <HomeLanding
+            onLoginPress={() => setAuthViewMode("login")}
+            onRegisterPress={openRegisterPage}
+          />
+        </SafeAreaView>
+      );
+    }
+
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="dark-content" />
@@ -637,38 +743,51 @@ export default function App() {
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           style={styles.loginScreen}
         >
-          <View style={styles.loginPanel}>
-            <Text style={styles.kicker}>My Memo</Text>
-            <Text style={styles.loginTitle}>ログイン</Text>
+          <Card style={styles.loginPanel}>
+            <Button
+              onPress={() => setAuthViewMode("landing")}
+              style={styles.backToLandingButton}
+              variant="secondary"
+            >
+              概要に戻る
+            </Button>
 
-            <View style={styles.formField}>
-              <Text style={styles.label}>メールアドレス</Text>
-              <TextInput
+            <View style={styles.brandRow}>
+              <View style={styles.brandMark}>
+                <Text style={styles.brandMarkText}>M</Text>
+              </View>
+              <Text style={styles.brandText}>My Memo App</Text>
+            </View>
+            <View style={styles.loginHeading}>
+              <Text style={styles.kicker}>Welcome back</Text>
+              <Text style={styles.loginTitle}>ログイン</Text>
+              <Text style={styles.loginLead}>
+                メールアドレスで続行して、あなたのメモ一覧へすぐに進めます。
+              </Text>
+            </View>
+
+            <View style={styles.loginForm}>
+              <TextField
                 autoCapitalize="none"
                 autoComplete="email"
                 autoCorrect={false}
                 editable={!loginLoading}
                 inputMode="email"
+                label="メールアドレス"
                 onChangeText={setEmail}
                 placeholder="you@example.com"
-                placeholderTextColor="#94a3b8"
-                style={styles.input}
                 textContentType="emailAddress"
                 value={email}
               />
-            </View>
 
-            <View style={styles.formField}>
-              <Text style={styles.label}>パスワード</Text>
-              <TextInput
+              <TextField
                 autoCapitalize="none"
                 autoComplete="current-password"
                 editable={!loginLoading}
+                label="パスワード"
                 onChangeText={setPassword}
-                placeholder="パスワード"
-                placeholderTextColor="#94a3b8"
+                placeholder="8文字以上"
                 secureTextEntry
-                style={styles.input}
                 textContentType="password"
                 value={password}
               />
@@ -678,22 +797,14 @@ export default function App() {
               <Text style={styles.loginError}>{loginError}</Text>
             ) : null}
 
-            <Pressable
-              accessibilityRole="button"
-              disabled={loginLoading}
+            <Button
+              loading={loginLoading}
               onPress={handleLogin}
-              style={({ pressed }) => [
-                styles.loginButton,
-                pressed || loginLoading ? styles.buttonPressed : undefined,
-              ]}
+              style={styles.fullButton}
             >
-              {loginLoading ? (
-                <ActivityIndicator color="#ffffff" />
-              ) : (
-                <Text style={styles.loginButtonText}>ログイン</Text>
-              )}
-            </Pressable>
-          </View>
+              メールアドレスでログイン
+            </Button>
+          </Card>
         </KeyboardAvoidingView>
       </SafeAreaView>
     );
@@ -742,40 +853,31 @@ export default function App() {
         <StatusBar barStyle="dark-content" />
         <ScrollView contentContainerStyle={styles.detailContent}>
           <View style={styles.detailTopBar}>
-            <Pressable
-              accessibilityRole="button"
+            <Button
               onPress={() => setViewMode("list")}
-              style={styles.secondaryButton}
+              style={styles.toolButton}
+              variant="secondary"
             >
-              <Text style={styles.secondaryButtonText}>戻る</Text>
-            </Pressable>
+              戻る
+            </Button>
             <View style={styles.detailActions}>
-              <Pressable
-                accessibilityRole="button"
+              <Button
                 disabled={!selectedPost || detailLoading || deleting}
                 onPress={handleEdit}
-                style={({ pressed }) => [
-                  styles.secondaryButton,
-                  pressed ? styles.buttonPressed : undefined,
-                ]}
+                style={styles.toolButton}
+                variant="secondary"
               >
-                <Text style={styles.secondaryButtonText}>編集</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
+                編集
+              </Button>
+              <Button
                 disabled={!selectedPost || detailLoading || deleting}
+                loading={deleting}
                 onPress={confirmDelete}
-                style={({ pressed }) => [
-                  styles.dangerButton,
-                  pressed || deleting ? styles.buttonPressed : undefined,
-                ]}
+                style={styles.toolButton}
+                variant="danger"
               >
-                {deleting ? (
-                  <ActivityIndicator color="#ffffff" />
-                ) : (
-                  <Text style={styles.dangerButtonText}>削除</Text>
-                )}
-              </Pressable>
+                削除
+              </Button>
             </View>
           </View>
 
@@ -785,28 +887,36 @@ export default function App() {
               <Text style={styles.stateText}>メモを読み込んでいます</Text>
             </View>
           ) : selectedPost ? (
-            <View>
-              <View style={styles.detailHeader}>
-                <Text style={styles.kicker}>My Memo</Text>
-                <Text style={styles.detailTitle}>{selectedPost.title}</Text>
-                <View
-                  style={[
-                    styles.statusBadge,
-                    selectedPost.published
-                      ? styles.statusBadgePublic
-                      : undefined,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.statusBadgeText,
-                      selectedPost.published
-                        ? styles.statusBadgeTextPublic
-                        : undefined,
-                    ]}
-                  >
+            <Card style={styles.articleCard}>
+              <View style={styles.articleHeader}>
+                <View style={styles.articleTitleRow}>
+                  <Text style={styles.detailTitle}>{selectedPost.title}</Text>
+                  <Badge variant={selectedPost.published ? "public" : "default"}>
                     {selectedPost.published ? "公開" : "非公開"}
-                  </Text>
+                  </Badge>
+                </View>
+
+                <View style={styles.postMetaGrid}>
+                  <View style={styles.postMetaItem}>
+                    <Text style={styles.postMetaLabel}>作成</Text>
+                    <Text style={styles.postMetaValue}>
+                      {formatUpdatedAt(selectedPost.createdAt)}
+                    </Text>
+                  </View>
+                  <View style={styles.postMetaItem}>
+                    <Text style={styles.postMetaLabel}>更新</Text>
+                    <Text style={styles.postMetaValue}>
+                      {formatUpdatedAt(selectedPost.updatedAt)}
+                    </Text>
+                  </View>
+                  <View style={styles.postMetaItem}>
+                    <Text style={styles.postMetaLabel}>カテゴリー</Text>
+                    <Text style={styles.postMetaValue}>
+                      {selectedPost.tags.length > 0
+                        ? selectedPost.tags.map((tag) => tag.name).join(" / ")
+                        : "未分類"}
+                    </Text>
+                  </View>
                 </View>
               </View>
 
@@ -823,22 +933,15 @@ export default function App() {
               <View style={styles.tagRow}>
                 {selectedPost.tags.length > 0 ? (
                   selectedPost.tags.map((tag) => (
-                    <View key={tag.id} style={styles.tag}>
-                      <Text style={styles.tagText}>#{tag.name}</Text>
-                    </View>
+                    <Badge key={tag.id} variant="tag">
+                      #{tag.name}
+                    </Badge>
                   ))
                 ) : (
                   <Text style={styles.noTags}>タグなし</Text>
                 )}
               </View>
-
-              <Text style={styles.updatedAt}>
-                作成: {formatUpdatedAt(selectedPost.createdAt)}
-              </Text>
-              <Text style={styles.updatedAt}>
-                更新: {formatUpdatedAt(selectedPost.updatedAt)}
-              </Text>
-            </View>
+            </Card>
           ) : (
             <View style={styles.centerState}>
               <Text style={styles.errorTitle}>メモがありません</Text>
@@ -858,42 +961,36 @@ export default function App() {
       <View style={styles.screen}>
         <View style={styles.header}>
           <View>
-            <Text style={styles.kicker}>My Memo</Text>
+            <Text style={styles.kicker}>Memo workspace</Text>
             <Text style={styles.title}>メモ一覧</Text>
-          </View>
-          <View style={styles.headerActions}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={handleCreate}
-              style={({ pressed }) => [
-                styles.primarySmallButton,
-                pressed ? styles.buttonPressed : undefined,
-              ]}
-            >
-              <Text style={styles.primarySmallButtonText}>新規</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={handleRefresh}
-              style={({ pressed }) => [
-                styles.refreshButton,
-                pressed ? styles.buttonPressed : undefined,
-              ]}
-            >
-              <Text style={styles.refreshButtonText}>更新</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={handleLogout}
-              style={({ pressed }) => [
-                styles.logoutButton,
-                pressed ? styles.buttonPressed : undefined,
-              ]}
-            >
-              <Text style={styles.logoutButtonText}>ログアウト</Text>
-            </Pressable>
+            <Text style={styles.postsSummary}>
+              {posts.length}件のメモ
+            </Text>
           </View>
         </View>
+
+        <Card style={styles.listToolbar}>
+          <Button
+            onPress={handleCreate}
+            style={styles.toolbarButton}
+          >
+            新規作成
+          </Button>
+          <Button
+            onPress={handleRefresh}
+            style={styles.toolbarButton}
+            variant="secondary"
+          >
+            更新
+          </Button>
+          <Button
+            onPress={handleLogout}
+            style={styles.toolbarButton}
+            variant="secondary"
+          >
+            ログアウト
+          </Button>
+        </Card>
 
         {loading ? (
           <View style={styles.centerState}>
@@ -904,13 +1001,13 @@ export default function App() {
           <View style={styles.centerState}>
             <Text style={styles.errorTitle}>{errorTitle}</Text>
             <Text style={styles.errorText}>{error}</Text>
-            <Pressable
-              accessibilityRole="button"
+            <Button
               onPress={() => loadPosts(accessToken)}
               style={styles.retryButton}
+              variant="secondary"
             >
-              <Text style={styles.retryButtonText}>再試行</Text>
-            </Pressable>
+              再試行
+            </Button>
           </View>
         ) : posts.length === 0 ? (
           <View style={styles.centerState}>
@@ -944,216 +1041,221 @@ export default function App() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#f8fafc",
+    backgroundColor: colors.background,
+    paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) : 0,
   },
   flex: {
     flex: 1,
   },
   screen: {
     flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 18,
+    paddingHorizontal: spacing.lg,
+    paddingTop: 28,
   },
   loginScreen: {
     flex: 1,
     justifyContent: "center",
-    paddingHorizontal: 20,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 28,
   },
   loginPanel: {
-    backgroundColor: "#ffffff",
-    borderColor: "#e5e7eb",
-    borderRadius: 8,
-    borderWidth: 1,
-    padding: 20,
+    backgroundColor: colors.surface,
+    padding: 24,
   },
-  loginTitle: {
-    color: "#111827",
-    fontSize: 28,
-    fontWeight: "800",
-    marginBottom: 24,
+  landingContent: {
+    paddingBottom: 42,
+    paddingHorizontal: spacing.lg,
+    paddingTop: 34,
+  },
+  heroCopy: {
+    marginTop: 8,
+  },
+  heroTitle: {
+    color: colors.text,
+    fontSize: 42,
+    fontWeight: "900",
+    letterSpacing: 0,
+    lineHeight: 46,
+    marginTop: 12,
+  },
+  heroLead: {
+    color: colors.textMuted,
+    fontSize: 16,
+    lineHeight: 30,
+    marginTop: 22,
+  },
+  heroActions: {
+    gap: 12,
+    marginTop: 30,
+  },
+  heroActionButton: {
+    minHeight: 50,
+    width: "100%",
+  },
+  heroStats: {
+    backgroundColor: "rgba(255, 255, 255, 0.58)",
+    marginTop: 36,
+  },
+  heroStatItem: {
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    padding: 18,
+  },
+  heroStatItemLast: {
+    borderBottomWidth: 0,
+  },
+  heroStatTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  heroStatText: {
+    color: colors.textSoft,
+    fontSize: 14,
     marginTop: 4,
   },
-  formContent: {
-    padding: 20,
-    paddingBottom: 36,
+  featureGrid: {
+    gap: 16,
+    marginTop: 42,
   },
-  formField: {
-    marginBottom: 16,
+  featureCard: {
+    backgroundColor: "rgba(255, 255, 255, 0.6)",
+    borderRadius: radius.md,
+    minHeight: 142,
+    padding: 22,
   },
-  label: {
-    color: "#334155",
-    fontSize: 14,
-    fontWeight: "700",
-    marginBottom: 8,
+  featureTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: "900",
+    lineHeight: 24,
   },
-  fieldHint: {
-    color: "#64748b",
-    fontSize: 12,
-    lineHeight: 18,
+  featureText: {
+    color: colors.textMuted,
+    fontSize: 15,
+    lineHeight: 27,
+    marginTop: 10,
+  },
+  backToLandingButton: {
+    alignSelf: "flex-start",
+    marginBottom: 20,
+  },
+  brandRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 26,
+  },
+  brandMark: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderColor: "rgba(37, 99, 235, 0.24)",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  brandMarkText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  brandText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  loginHeading: {
+    marginBottom: 24,
+  },
+  loginTitle: {
+    color: colors.text,
+    fontSize: 28,
+    fontWeight: "900",
+    lineHeight: 34,
     marginTop: 6,
   },
-  input: {
-    backgroundColor: "#ffffff",
-    borderColor: "#cbd5e1",
-    borderRadius: 8,
-    borderWidth: 1,
-    color: "#111827",
-    fontSize: 16,
-    minHeight: 48,
-    paddingHorizontal: 14,
+  loginLead: {
+    color: colors.textMuted,
+    fontSize: 14,
+    lineHeight: 22,
+    marginTop: 10,
   },
-  bodyInput: {
-    minHeight: 180,
-    paddingTop: 12,
+  formContent: {
+    paddingHorizontal: 10,
+    paddingBottom: 36,
+    paddingTop: 22,
   },
-  switchRow: {
-    alignItems: "center",
-    backgroundColor: "#ffffff",
-    borderColor: "#e5e7eb",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    justifyContent: "space-between",
-    marginBottom: 16,
-    padding: 14,
+  fullButton: {
+    width: "100%",
+  },
+  loginForm: {
+    gap: 14,
+    marginBottom: 14,
   },
   loginError: {
-    color: "#b91c1c",
+    backgroundColor: colors.dangerSoft,
+    borderColor: "rgba(220, 38, 38, 0.2)",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    color: colors.danger,
     fontSize: 14,
     lineHeight: 20,
     marginBottom: 14,
+    padding: 10,
   },
   formError: {
-    backgroundColor: "#fef2f2",
-    borderColor: "#fecaca",
-    borderRadius: 8,
+    backgroundColor: colors.dangerSoft,
+    borderColor: "rgba(220, 38, 38, 0.2)",
+    borderRadius: radius.md,
     borderWidth: 1,
-    color: "#b91c1c",
+    color: colors.danger,
     fontSize: 14,
     lineHeight: 20,
     marginBottom: 14,
     padding: 12,
   },
-  loginButton: {
-    alignItems: "center",
-    backgroundColor: "#111827",
-    borderRadius: 8,
-    justifyContent: "center",
-    minHeight: 48,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-  },
-  loginButtonText: {
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "800",
-  },
   header: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 18,
+    marginBottom: spacing.lg,
   },
   kicker: {
-    color: "#2563eb",
-    fontSize: 13,
-    fontWeight: "700",
+    ...typography.eyebrow,
   },
   title: {
-    color: "#111827",
-    fontSize: 30,
-    fontWeight: "800",
-    marginTop: 4,
+    ...typography.screenTitle,
+    marginTop: 6,
   },
-  headerActions: {
-    alignItems: "flex-end",
-    gap: 8,
+  postsSummary: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: "700",
+    marginTop: 8,
+  },
+  listToolbar: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 18,
+    padding: 12,
   },
   formActions: {
     flexDirection: "row",
     gap: 10,
     justifyContent: "flex-end",
   },
-  primaryButton: {
-    alignItems: "center",
-    backgroundColor: "#111827",
-    borderRadius: 8,
-    justifyContent: "center",
-    minHeight: 44,
-    minWidth: 112,
-    paddingHorizontal: 18,
-    paddingVertical: 11,
+  formActionButton: {
+    flex: 1,
   },
-  primaryButtonText: {
-    color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "800",
+  toolbarButton: {
+    flexGrow: 1,
+    minWidth: 96,
   },
-  primarySmallButton: {
-    backgroundColor: "#2563eb",
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  primarySmallButtonText: {
-    color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  refreshButton: {
-    backgroundColor: "#111827",
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  logoutButton: {
-    backgroundColor: "#ffffff",
-    borderColor: "#cbd5e1",
-    borderRadius: 8,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-  },
-  secondaryButton: {
-    backgroundColor: "#ffffff",
-    borderColor: "#cbd5e1",
-    borderRadius: 8,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  secondaryButtonText: {
-    color: "#334155",
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  dangerButton: {
-    alignItems: "center",
-    backgroundColor: "#dc2626",
-    borderRadius: 8,
-    justifyContent: "center",
+  toolButton: {
     minWidth: 72,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  dangerButtonText: {
-    color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "800",
   },
   buttonPressed: {
     opacity: 0.75,
-  },
-  refreshButtonText: {
-    color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  logoutButtonText: {
-    color: "#334155",
-    fontSize: 13,
-    fontWeight: "700",
   },
   centerState: {
     alignItems: "center",
@@ -1186,15 +1288,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 11,
   },
-  retryButtonText: {
-    color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "800",
-  },
   emptyTitle: {
     color: "#111827",
-    fontSize: 20,
-    fontWeight: "800",
+    fontSize: 22,
+    fontWeight: "900",
     marginBottom: 8,
     textAlign: "center",
   },
@@ -1205,51 +1302,34 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   listContent: {
-    paddingBottom: 28,
+    paddingBottom: 32,
   },
-  card: {
-    backgroundColor: "#ffffff",
-    borderColor: "#e5e7eb",
-    borderRadius: 8,
-    borderWidth: 1,
-    marginBottom: 12,
-    padding: 16,
+  memoCard: {
+    marginBottom: 14,
+    minHeight: 250,
   },
-  cardHeader: {
+  memoCardMain: {
+    flex: 1,
+    padding: 18,
+  },
+  cardBadgeRow: {
     alignItems: "flex-start",
     flexDirection: "row",
-    gap: 10,
-    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: 8,
+    minHeight: 28,
   },
   cardTitle: {
-    color: "#111827",
-    flex: 1,
+    color: colors.text,
     fontSize: 18,
-    fontWeight: "800",
+    fontWeight: "900",
     lineHeight: 24,
-  },
-  statusBadge: {
-    alignSelf: "flex-start",
-    backgroundColor: "#f1f5f9",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  statusBadgePublic: {
-    backgroundColor: "#dcfce7",
-  },
-  statusBadgeText: {
-    color: "#475569",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  statusBadgeTextPublic: {
-    color: "#166534",
+    marginTop: 10,
   },
   cardContent: {
-    color: "#334155",
+    color: colors.textMuted,
     fontSize: 15,
-    lineHeight: 22,
+    lineHeight: 24,
     marginTop: 12,
   },
   tagRow: {
@@ -1258,64 +1338,182 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 14,
   },
-  tag: {
-    backgroundColor: "#eff6ff",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  tagText: {
-    color: "#1d4ed8",
-    fontSize: 12,
+  noTags: {
+    color: colors.textSoft,
+    fontSize: 13,
     fontWeight: "700",
   },
-  noTags: {
-    color: "#94a3b8",
-    fontSize: 13,
+  memoDates: {
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    marginTop: "auto",
+    paddingTop: 14,
   },
-  updatedAt: {
-    color: "#64748b",
-    fontSize: 12,
-    marginTop: 14,
+  memoDateItem: {
+    flex: 1,
+    gap: 2,
+  },
+  memoDateLabel: {
+    color: colors.textSoft,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  memoDateValue: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "800",
   },
   detailContent: {
-    padding: 20,
+    paddingHorizontal: 10,
     paddingBottom: 36,
+    paddingTop: 28,
   },
   detailTopBar: {
     alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 18,
+    padding: 8,
+    ...shadows.soft,
   },
   detailActions: {
     flexDirection: "row",
     gap: 8,
   },
-  detailHeader: {
-    gap: 10,
-    marginBottom: 16,
+  articleCard: {
+    backgroundColor: "rgba(255, 255, 255, 0.9)",
+  },
+  articleHeader: {
+    paddingHorizontal: 22,
+    paddingTop: 28,
+    paddingBottom: 20,
+  },
+  articleTitleRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 12,
   },
   detailTitle: {
-    color: "#111827",
-    fontSize: 28,
-    fontWeight: "800",
+    color: colors.text,
+    flex: 1,
+    fontSize: 30,
+    fontWeight: "900",
     lineHeight: 36,
   },
   detailBody: {
-    backgroundColor: "#ffffff",
-    borderColor: "#e5e7eb",
-    borderRadius: 8,
-    borderWidth: 1,
-    color: "#1f2937",
+    color: colors.text,
     fontSize: 16,
-    lineHeight: 25,
+    lineHeight: 30,
     minHeight: 180,
-    padding: 16,
+    paddingHorizontal: 22,
+    paddingVertical: 24,
+  },
+  postMetaGrid: {
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    marginTop: 22,
+    paddingTop: 18,
+  },
+  postMetaItem: {
+    minWidth: "45%",
+    gap: 4,
+  },
+  postMetaLabel: {
+    color: colors.textSoft,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  postMetaValue: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20,
   },
   inlineLoading: {
-    color: "#2563eb",
+    color: colors.primaryStrong,
     fontSize: 13,
     marginBottom: 10,
+    paddingHorizontal: 22,
+  },
+  editorTopbar: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 14,
+    justifyContent: "space-between",
+    marginBottom: 18,
+  },
+  editorHeading: {
+    flex: 1,
+  },
+  publishPill: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    minHeight: 44,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  publishPillText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  editorSheet: {
+    marginBottom: 18,
+  },
+  editorTitleInput: {
+    color: colors.text,
+    fontSize: 30,
+    fontWeight: "900",
+    lineHeight: 38,
+    minHeight: 92,
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 14,
+  },
+  editorToolbar: {
+    backgroundColor: "rgba(248, 250, 252, 0.82)",
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    minHeight: 56,
+    justifyContent: "center",
+    paddingHorizontal: 22,
+  },
+  editorToolbarText: {
+    color: colors.textSoft,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  editorBodyInput: {
+    color: colors.text,
+    fontSize: 16,
+    lineHeight: 30,
+    minHeight: 300,
+    paddingHorizontal: 22,
+    paddingVertical: 20,
+  },
+  editorTagsInput: {
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    color: colors.textMuted,
+    fontSize: 15,
+    minHeight: 58,
+    paddingHorizontal: 22,
+    paddingVertical: 16,
   },
 });
