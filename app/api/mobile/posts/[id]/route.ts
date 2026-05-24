@@ -194,3 +194,55 @@ export async function PATCH(
     );
   }
 }
+
+export async function DELETE(
+  _request: Request,
+  { params }: MobilePostDetailRouteContext,
+) {
+  const session = await auth();
+
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "ログインが必要です。" }, { status: 401 });
+  }
+
+  const { id } = await params;
+  const validatedPostId = postIdValueSchema.safeParse(id);
+
+  if (!validatedPostId.success) {
+    return NextResponse.json(
+      { error: "メモIDの形式が正しくありません。" },
+      { status: 400 },
+    );
+  }
+
+  const postId = validatedPostId.data;
+
+  try {
+    const result = await prisma.post.deleteMany({
+      where: {
+        id: postId,
+        authorId: session.user.id,
+      },
+    });
+
+    if (result.count === 0) {
+      return NextResponse.json(
+        { error: "メモが見つかりません。" },
+        { status: 404 },
+      );
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    logServerError(error, {
+      action: "mobileDeletePost",
+      userId: session.user.id,
+      postId,
+    });
+
+    return NextResponse.json(
+      { error: "メモの削除に失敗しました。" },
+      { status: 500 },
+    );
+  }
+}
