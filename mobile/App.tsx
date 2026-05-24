@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -36,6 +36,9 @@ import type { MobilePost, MobilePostPayload } from "./src/types/posts";
 
 type ViewMode = "list" | "detail" | "create" | "edit";
 type AuthViewMode = "landing" | "login";
+type AutoSaveStatus = "unsaved" | "saving" | "saved" | "error";
+
+const AUTO_SAVE_DEBOUNCE_MS = 1500;
 
 const features = [
   {
@@ -83,6 +86,30 @@ function getPreview(content: string) {
 
 function getTagsInput(post?: MobilePost | null) {
   return post?.tags.map((tag) => tag.name).join(", ") ?? "";
+}
+
+function getPayloadSignature(payload: MobilePostPayload) {
+  return JSON.stringify({
+    content: payload.content,
+    published: payload.published,
+    tags: payload.tags,
+    title: payload.title,
+  });
+}
+
+function canAutoSavePayload(payload: MobilePostPayload) {
+  return Boolean(payload.title.trim() && payload.content.trim());
+}
+
+function getAutoSaveStatusText(status: AutoSaveStatus) {
+  if (status === "saving") return "保存中...";
+  if (status === "saved") return "保存済み";
+  if (status === "error") return "保存失敗";
+  return "未保存";
+}
+
+function modeForAutoSave(viewMode: ViewMode, postId: number | null) {
+  return viewMode === "create" && !postId ? "create" : "update";
 }
 
 function HomeLanding({
@@ -217,33 +244,107 @@ function PostCard({
 }
 
 function MemoForm({
+  autoSaveError,
   error,
   initialPost,
   mode,
+  onAutoSave,
   onCancel,
   onSubmit,
   saving,
 }: {
+  autoSaveError: string;
   error: string;
   initialPost?: MobilePost | null;
   mode: "create" | "edit";
+  onAutoSave: (
+    payload: MobilePostPayload,
+    draftPostId: number | null,
+  ) => Promise<MobilePost>;
   onCancel: () => void;
-  onSubmit: (payload: MobilePostPayload) => void;
+  onSubmit: (payload: MobilePostPayload, draftPostId: number | null) => void;
   saving: boolean;
 }) {
   const [title, setTitle] = useState(initialPost?.title ?? "");
   const [content, setContent] = useState(initialPost?.content ?? "");
   const [tags, setTags] = useState(getTagsInput(initialPost));
   const [published, setPublished] = useState(initialPost?.published ?? false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>(
+    initialPost ? "saved" : "unsaved",
+  );
+  const [draftPostId, setDraftPostId] = useState<number | null>(
+    initialPost?.id ?? null,
+  );
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedSignatureRef = useRef(
+    initialPost
+      ? getPayloadSignature({
+          content: initialPost.content,
+          published: initialPost.published,
+          tags: getTagsInput(initialPost),
+          title: initialPost.title,
+        })
+      : "",
+  );
 
-  const handleSubmit = useCallback(() => {
-    onSubmit({
+  const payload = useMemo(
+    () => ({
       content,
       published,
       tags,
       title,
-    });
-  }, [content, onSubmit, published, tags, title]);
+    }),
+    [content, published, tags, title],
+  );
+
+  useEffect(() => {
+    const signature = getPayloadSignature(payload);
+
+    if (signature === lastSavedSignatureRef.current) {
+      return;
+    }
+
+    setAutoSaveStatus("unsaved");
+
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    if (!canAutoSavePayload(payload)) {
+      return;
+    }
+
+    autoSaveTimerRef.current = setTimeout(() => {
+      setAutoSaveStatus("saving");
+
+      onAutoSave(payload, draftPostId)
+        .then((savedPost) => {
+          const savedSignature = getPayloadSignature({
+            content: savedPost.content,
+            published: savedPost.published,
+            tags: getTagsInput(savedPost),
+            title: savedPost.title,
+          });
+
+          setDraftPostId(savedPost.id);
+          lastSavedSignatureRef.current = savedSignature;
+          setAutoSaveStatus("saved");
+        })
+        .catch(() => {
+          setAutoSaveStatus("error");
+        });
+    }, AUTO_SAVE_DEBOUNCE_MS);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [draftPostId, onAutoSave, payload]);
+
+  const handleSubmit = useCallback(() => {
+    onSubmit(payload, draftPostId);
+  }, [draftPostId, onSubmit, payload]);
 
   return (
     <KeyboardAvoidingView
@@ -271,6 +372,30 @@ function MemoForm({
               {published ? "公開" : "非公開"}
             </Text>
           </View>
+        </View>
+
+        <View
+          style={[
+            styles.autoSaveStatus,
+            autoSaveStatus === "error" ? styles.autoSaveStatusError : undefined,
+          ]}
+        >
+          <Text
+            style={[
+              styles.autoSaveStatusText,
+              autoSaveStatus === "saving"
+                ? styles.autoSaveStatusTextSaving
+                : undefined,
+              autoSaveStatus === "saved"
+                ? styles.autoSaveStatusTextSaved
+                : undefined,
+              autoSaveStatus === "error"
+                ? styles.autoSaveStatusTextError
+                : undefined,
+            ]}
+          >
+            {getAutoSaveStatusText(autoSaveStatus)}
+          </Text>
         </View>
 
         <Card style={styles.editorSheet}>
@@ -310,6 +435,9 @@ function MemoForm({
         </Card>
 
         {error ? <Text style={styles.formError}>{error}</Text> : null}
+        {autoSaveError && autoSaveStatus === "error" ? (
+          <Text style={styles.formError}>{autoSaveError}</Text>
+        ) : null}
 
         <View style={styles.formActions}>
           <Button
@@ -353,6 +481,7 @@ export default function App() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
   const [formError, setFormError] = useState("");
+  const [autoSaveError, setAutoSaveError] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -366,6 +495,7 @@ export default function App() {
     setErrorStatus(null);
     setDetailError("");
     setFormError("");
+    setAutoSaveError("");
     setPassword("");
     setLoginError(nextLoginError);
     setAuthViewMode(nextLoginError ? "login" : "landing");
@@ -553,16 +683,19 @@ export default function App() {
   const handleCreate = useCallback(() => {
     setSelectedPost(null);
     setFormError("");
+    setAutoSaveError("");
     setViewMode("create");
   }, []);
 
   const handleEdit = useCallback(() => {
     setFormError("");
+    setAutoSaveError("");
     setViewMode("edit");
   }, []);
 
   const handleCancelForm = useCallback(() => {
     setFormError("");
+    setAutoSaveError("");
     setViewMode(selectedPost ? "detail" : "list");
   }, [selectedPost]);
 
@@ -579,7 +712,7 @@ export default function App() {
   }, []);
 
   const handleSaveCreate = useCallback(
-    async (payload: MobilePostPayload) => {
+    async (payload: MobilePostPayload, draftPostId: number | null) => {
       if (!accessToken) {
         setLoginError("ログインが必要です。");
         return;
@@ -596,9 +729,22 @@ export default function App() {
       setFormError("");
 
       try {
-        const createdPost = await createMobilePost(accessToken, payload);
-        setPosts((currentPosts) => [createdPost, ...currentPosts]);
-        setSelectedPost(createdPost);
+        const savedPost = draftPostId
+          ? await updateMobilePost(accessToken, draftPostId, payload)
+          : await createMobilePost(accessToken, payload);
+
+        setPosts((currentPosts) => {
+          const exists = currentPosts.some(
+            (currentPost) => currentPost.id === savedPost.id,
+          );
+
+          return exists
+            ? currentPosts.map((currentPost) =>
+                currentPost.id === savedPost.id ? savedPost : currentPost,
+              )
+            : [savedPost, ...currentPosts];
+        });
+        setSelectedPost(savedPost);
         setViewMode("detail");
       } catch (caughtError) {
         if (await handleAuthError(caughtError)) {
@@ -618,8 +764,10 @@ export default function App() {
   );
 
   const handleSaveEdit = useCallback(
-    async (payload: MobilePostPayload) => {
-      if (!accessToken || !selectedPost) {
+    async (payload: MobilePostPayload, draftPostId: number | null) => {
+      const postId = draftPostId ?? selectedPost?.id ?? null;
+
+      if (!accessToken || !postId) {
         setLoginError("ログインが必要です。");
         return;
       }
@@ -637,7 +785,7 @@ export default function App() {
       try {
         const updatedPost = await updateMobilePost(
           accessToken,
-          selectedPost.id,
+          postId,
           payload,
         );
         setPosts((currentPosts) =>
@@ -662,6 +810,63 @@ export default function App() {
       }
     },
     [accessToken, handleAuthError, selectedPost, validatePayload],
+  );
+
+  const handleAutoSave = useCallback(
+    async (payload: MobilePostPayload, draftPostId: number | null) => {
+      const postId = draftPostId ?? selectedPost?.id ?? null;
+
+      if (!accessToken) {
+        setAutoSaveError("ログインが必要です。");
+        throw new Error("ログインが必要です。");
+      }
+
+      if (!canAutoSavePayload(payload)) {
+        throw new Error("自動保存できる入力内容ではありません。");
+      }
+
+      if (viewMode !== "create" && !postId) {
+        setAutoSaveError("保存対象のメモが見つかりません。");
+        throw new Error("保存対象のメモが見つかりません。");
+      }
+
+      setAutoSaveError("");
+
+      try {
+        const savedPost =
+          modeForAutoSave(viewMode, postId) === "create"
+            ? await createMobilePost(accessToken, payload)
+            : await updateMobilePost(accessToken, postId as number, payload);
+
+        setPosts((currentPosts) => {
+          const exists = currentPosts.some(
+            (currentPost) => currentPost.id === savedPost.id,
+          );
+
+          return exists
+            ? currentPosts.map((currentPost) =>
+                currentPost.id === savedPost.id ? savedPost : currentPost,
+              )
+            : [savedPost, ...currentPosts];
+        });
+        setSelectedPost(savedPost);
+
+        return savedPost;
+      } catch (caughtError) {
+        if (await handleAuthError(caughtError)) {
+          setAutoSaveError("ログインが必要です。再度ログインしてください。");
+        } else {
+          setAutoSaveError(
+            caughtError instanceof Error
+              ? caughtError.message
+              : "自動保存に失敗しました。",
+          );
+        }
+
+        throw caughtError;
+      }
+    },
+    [accessToken, handleAuthError, selectedPost, viewMode],
   );
 
   const performDelete = useCallback(async () => {
@@ -815,12 +1020,14 @@ export default function App() {
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="dark-content" />
         <MemoForm
+          autoSaveError={autoSaveError}
           error={formError}
           key="create"
           mode="create"
+          onAutoSave={handleAutoSave}
           onCancel={handleCancelForm}
-          onSubmit={(payload) => {
-            void handleSaveCreate(payload);
+          onSubmit={(payload, draftPostId) => {
+            void handleSaveCreate(payload, draftPostId);
           }}
           saving={saving}
         />
@@ -833,13 +1040,15 @@ export default function App() {
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="dark-content" />
         <MemoForm
+          autoSaveError={autoSaveError}
           error={formError}
           initialPost={selectedPost}
           key={`edit-${selectedPost.id}`}
           mode="edit"
+          onAutoSave={handleAutoSave}
           onCancel={handleCancelForm}
-          onSubmit={(payload) => {
-            void handleSaveEdit(payload);
+          onSubmit={(payload, draftPostId) => {
+            void handleSaveEdit(payload, draftPostId);
           }}
           saving={saving}
         />
@@ -1453,6 +1662,35 @@ const styles = StyleSheet.create({
   },
   editorHeading: {
     flex: 1,
+  },
+  autoSaveStatus: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    marginBottom: 12,
+    minHeight: 28,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+  },
+  autoSaveStatusError: {
+    backgroundColor: colors.dangerSoft,
+    borderColor: "rgba(220, 38, 38, 0.2)",
+  },
+  autoSaveStatusText: {
+    color: colors.textSoft,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  autoSaveStatusTextError: {
+    color: colors.danger,
+  },
+  autoSaveStatusTextSaved: {
+    color: colors.accent,
+  },
+  autoSaveStatusTextSaving: {
+    color: colors.primaryStrong,
   },
   publishPill: {
     alignItems: "center",
