@@ -191,6 +191,15 @@ export const aiContentRequestSchema = z.object({
   }),
 });
 
+export const mobileAiGenerateRequestSchema = z.object({
+  content: aiContentSchema
+    .transform((value) => value.trim())
+    .refine((value) => value.length > 0, "AIに渡す本文が空です。"),
+  mode: z.enum(["summarize", "improve", "ideas"], {
+    error: "AI処理の種類が正しくありません。",
+  }),
+});
+
 export const aiGeneratedResultSchema = safeString("AIの結果", 12_000)
   .transform((value) => value.trim())
   .refine((value) => value.length > 0, "AIの結果を読み取れませんでした。");

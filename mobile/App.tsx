@@ -16,6 +16,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { generateMobileAiContent } from "./src/api/ai";
 import { loginWithEmailPassword } from "./src/api/auth";
 import {
   createMobilePost,
@@ -32,13 +33,19 @@ import {
 } from "./src/storage/auth-token";
 import { Badge, Button, Card, TextField } from "./src/components/ui";
 import { colors, radius, shadows, spacing, typography } from "./src/theme";
-import type { MobilePost, MobilePostPayload } from "./src/types/posts";
+import type { MobileAiMode, MobilePost, MobilePostPayload } from "./src/types/posts";
 
 type ViewMode = "list" | "detail" | "create" | "edit";
 type AuthViewMode = "landing" | "login";
 type AutoSaveStatus = "unsaved" | "saving" | "saved" | "error";
 
 const AUTO_SAVE_DEBOUNCE_MS = 1500;
+
+const aiTasks: { label: string; mode: MobileAiMode }[] = [
+  { label: "要約", mode: "summarize" },
+  { label: "リライト", mode: "improve" },
+  { label: "アイデア", mode: "ideas" },
+];
 
 const features = [
   {
@@ -106,6 +113,25 @@ function getAutoSaveStatusText(status: AutoSaveStatus) {
   if (status === "saved") return "保存済み";
   if (status === "error") return "保存失敗";
   return "未保存";
+}
+
+function getAiResultHeading(mode: MobileAiMode | null) {
+  if (mode === "improve") return "AIによるリライト";
+  if (mode === "ideas") return "AIによるアイデア";
+  return "AIによる要約";
+}
+
+function getAppliedAiContent(
+  currentContent: string,
+  result: string,
+  mode: MobileAiMode | null,
+) {
+  if (mode === "improve") {
+    return result;
+  }
+
+  const heading = mode === "ideas" ? "AIによるアイデア" : "AIによる要約";
+  return `${currentContent.trimEnd()}\n\n\n--- ${heading} ---\n${result}`.trimStart();
 }
 
 function modeForAutoSave(viewMode: ViewMode, postId: number | null) {
@@ -250,6 +276,7 @@ function MemoForm({
   mode,
   onAutoSave,
   onCancel,
+  onGenerateAi,
   onSubmit,
   saving,
 }: {
@@ -262,6 +289,7 @@ function MemoForm({
     draftPostId: number | null,
   ) => Promise<MobilePost>;
   onCancel: () => void;
+  onGenerateAi: (content: string, mode: MobileAiMode) => Promise<string>;
   onSubmit: (payload: MobilePostPayload, draftPostId: number | null) => void;
   saving: boolean;
 }) {
@@ -272,6 +300,10 @@ function MemoForm({
   const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>(
     initialPost ? "saved" : "unsaved",
   );
+  const [aiMode, setAiMode] = useState<MobileAiMode | null>(null);
+  const [aiResult, setAiResult] = useState("");
+  const [aiResultMode, setAiResultMode] = useState<MobileAiMode | null>(null);
+  const [aiError, setAiError] = useState("");
   const [draftPostId, setDraftPostId] = useState<number | null>(
     initialPost?.id ?? null,
   );
@@ -346,6 +378,43 @@ function MemoForm({
     onSubmit(payload, draftPostId);
   }, [draftPostId, onSubmit, payload]);
 
+  const handleAiGenerate = useCallback(
+    async (nextMode: MobileAiMode) => {
+      if (!content.trim()) {
+        setAiError("AIに渡す本文を入力してください。");
+        return;
+      }
+
+      setAiMode(nextMode);
+      setAiError("");
+
+      try {
+        const result = await onGenerateAi(content, nextMode);
+        setAiResult(result);
+        setAiResultMode(nextMode);
+      } catch (caughtError) {
+        setAiError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "AI生成に失敗しました。",
+        );
+      } finally {
+        setAiMode(null);
+      }
+    },
+    [content, onGenerateAi],
+  );
+
+  const applyAiResult = useCallback(() => {
+    if (!aiResult) {
+      return;
+    }
+
+    setContent((currentContent) =>
+      getAppliedAiContent(currentContent, aiResult, aiResultMode),
+    );
+  }, [aiResult, aiResultMode]);
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -397,6 +466,52 @@ function MemoForm({
             {getAutoSaveStatusText(autoSaveStatus)}
           </Text>
         </View>
+
+        <Card style={styles.aiPanel}>
+          <View style={styles.aiPanelHeader}>
+            <View style={styles.editorHeading}>
+              <Text style={styles.aiPanelKicker}>AI Assistant</Text>
+              <Text style={styles.aiPanelLead}>
+                本文をもとに、要約・リライト・次のアイデアを生成できます。
+              </Text>
+            </View>
+            {aiMode ? <ActivityIndicator color={colors.primaryStrong} /> : null}
+          </View>
+
+          <View style={styles.aiButtonRow}>
+            {aiTasks.map((task) => (
+              <Button
+                disabled={Boolean(aiMode)}
+                key={task.mode}
+                onPress={() => {
+                  void handleAiGenerate(task.mode);
+                }}
+                style={styles.aiTaskButton}
+                variant="soft"
+              >
+                {aiMode === task.mode ? "生成中..." : task.label}
+              </Button>
+            ))}
+          </View>
+
+          {aiError ? <Text style={styles.aiErrorText}>{aiError}</Text> : null}
+
+          {aiResult ? (
+            <View style={styles.aiResultBox}>
+              <Text style={styles.aiResultLabel}>
+                {getAiResultHeading(aiResultMode)}
+              </Text>
+              <Text style={styles.aiResultText}>{aiResult}</Text>
+              <Button
+                onPress={applyAiResult}
+                style={styles.aiApplyButton}
+                variant={aiResultMode === "improve" ? "dark" : "secondary"}
+              >
+                {aiResultMode === "improve" ? "本文を置き換える" : "本文に追加"}
+              </Button>
+            </View>
+          ) : null}
+        </Card>
 
         <Card style={styles.editorSheet}>
           <TextInput
@@ -869,6 +984,26 @@ export default function App() {
     [accessToken, handleAuthError, selectedPost, viewMode],
   );
 
+  const handleGenerateAi = useCallback(
+    async (content: string, mode: MobileAiMode) => {
+      if (!accessToken) {
+        setLoginError("ログインが必要です。");
+        throw new Error("ログインが必要です。");
+      }
+
+      try {
+        return await generateMobileAiContent(accessToken, content, mode);
+      } catch (caughtError) {
+        if (await handleAuthError(caughtError)) {
+          throw new Error("ログインが必要です。再度ログインしてください。");
+        }
+
+        throw caughtError;
+      }
+    },
+    [accessToken, handleAuthError],
+  );
+
   const performDelete = useCallback(async () => {
     if (!accessToken || !selectedPost) {
       setLoginError("ログインが必要です。");
@@ -1026,6 +1161,7 @@ export default function App() {
           mode="create"
           onAutoSave={handleAutoSave}
           onCancel={handleCancelForm}
+          onGenerateAi={handleGenerateAi}
           onSubmit={(payload, draftPostId) => {
             void handleSaveCreate(payload, draftPostId);
           }}
@@ -1047,6 +1183,7 @@ export default function App() {
           mode="edit"
           onAutoSave={handleAutoSave}
           onCancel={handleCancelForm}
+          onGenerateAi={handleGenerateAi}
           onSubmit={(payload, draftPostId) => {
             void handleSaveEdit(payload, draftPostId);
           }}
@@ -1691,6 +1828,73 @@ const styles = StyleSheet.create({
   },
   autoSaveStatusTextSaving: {
     color: colors.primaryStrong,
+  },
+  aiPanel: {
+    backgroundColor: "rgba(219, 234, 254, 0.36)",
+    borderColor: "rgba(37, 99, 235, 0.14)",
+    marginBottom: 14,
+    padding: 14,
+  },
+  aiPanelHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
+  },
+  aiPanelKicker: {
+    color: colors.primaryStrong,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  aiPanelLead: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 20,
+    marginTop: 6,
+  },
+  aiButtonRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 12,
+  },
+  aiTaskButton: {
+    flexGrow: 1,
+    minWidth: 92,
+  },
+  aiErrorText: {
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 20,
+    marginTop: 12,
+  },
+  aiResultBox: {
+    backgroundColor: colors.surfaceStrong,
+    borderColor: "rgba(37, 99, 235, 0.14)",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    marginTop: 12,
+    padding: 14,
+  },
+  aiResultLabel: {
+    color: colors.primaryStrong,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    marginBottom: 8,
+    textTransform: "uppercase",
+  },
+  aiResultText: {
+    color: colors.textMuted,
+    fontSize: 15,
+    lineHeight: 26,
+  },
+  aiApplyButton: {
+    marginTop: 12,
   },
   publishPill: {
     alignItems: "center",
