@@ -17,6 +17,17 @@ export type MobilePostsResponse = {
   posts: MobilePost[];
 };
 
+export type MobilePostResponse = {
+  post: MobilePost;
+};
+
+export type MobilePostPayload = {
+  title: string;
+  content: string;
+  tags: string;
+  published: boolean;
+};
+
 export type MobileApiErrorResponse = {
   error: string;
 };
