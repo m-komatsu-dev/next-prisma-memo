@@ -58,3 +58,33 @@ export async function loginWithEmailPassword(email: string, password: string) {
 
   return data;
 }
+
+export async function deleteMobileAccount(
+  accessToken: string,
+  confirmation: string,
+) {
+  if (!API_BASE_URL) {
+    throw new Error("EXPO_PUBLIC_API_BASE_URL が設定されていません。");
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/mobile/account`, {
+    body: JSON.stringify({ confirmation }),
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    method: "DELETE",
+  });
+
+  const data = (await response.json()) as unknown;
+
+  if (!response.ok) {
+    throw new MobileApiRequestError(
+      isMobileApiErrorResponse(data)
+        ? data.error
+        : "アカウント削除に失敗しました。",
+      response.status,
+    );
+  }
+}

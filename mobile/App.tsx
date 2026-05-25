@@ -18,7 +18,7 @@ import {
   View,
 } from "react-native";
 import { generateMobileAiContent } from "./src/api/ai";
-import { loginWithEmailPassword } from "./src/api/auth";
+import { deleteMobileAccount, loginWithEmailPassword } from "./src/api/auth";
 import {
   createMobilePost,
   deleteMobilePost,
@@ -1158,6 +1158,10 @@ export default function App() {
   const [autoSaveError, setAutoSaveError] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [accountDeletionOpen, setAccountDeletionOpen] = useState(false);
+  const [accountDeleteConfirmation, setAccountDeleteConfirmation] = useState("");
+  const [accountDeleteLoading, setAccountDeleteLoading] = useState(false);
+  const [accountDeleteError, setAccountDeleteError] = useState("");
 
   const clearSession = useCallback(async (nextLoginError = "") => {
     await deleteStoredAccessToken();
@@ -1175,6 +1179,9 @@ export default function App() {
     setDetailError("");
     setFormError("");
     setAutoSaveError("");
+    setAccountDeletionOpen(false);
+    setAccountDeleteConfirmation("");
+    setAccountDeleteError("");
     setPassword("");
     setLoginError(nextLoginError);
     setAuthViewMode(nextLoginError ? "login" : "landing");
@@ -1309,6 +1316,61 @@ export default function App() {
   const handleLogout = useCallback(async () => {
     await clearSession();
   }, [clearSession]);
+
+  const handleDeleteAccount = useCallback(() => {
+    if (!accessToken) {
+      setLoginError("ログインが必要です。");
+      return;
+    }
+
+    if (accountDeleteConfirmation !== "DELETE") {
+      setAccountDeleteError("確認テキストに DELETE と入力してください。");
+      return;
+    }
+
+    Alert.alert(
+      "アカウントを削除しますか？",
+      "アカウント、ログイン連携、セッション、作成したメモを削除します。この操作は取り消せません。",
+      [
+        {
+          style: "cancel",
+          text: "キャンセル",
+        },
+        {
+          onPress: () => {
+            void (async () => {
+              setAccountDeleteLoading(true);
+              setAccountDeleteError("");
+
+              try {
+                await deleteMobileAccount(accessToken, accountDeleteConfirmation);
+                await clearSession();
+              } catch (caughtError) {
+                if (await handleAuthError(caughtError)) {
+                  return;
+                }
+
+                setAccountDeleteError(
+                  caughtError instanceof Error
+                    ? caughtError.message
+                    : "アカウント削除に失敗しました。",
+                );
+              } finally {
+                setAccountDeleteLoading(false);
+              }
+            })();
+          },
+          style: "destructive",
+          text: "削除する",
+        },
+      ],
+    );
+  }, [
+    accessToken,
+    accountDeleteConfirmation,
+    clearSession,
+    handleAuthError,
+  ]);
 
   const openRegisterPage = useCallback(() => {
     if (!API_BASE_URL) {
@@ -1973,6 +2035,64 @@ export default function App() {
           </Button>
         </Card>
 
+        <Card style={[styles.accountDeletionCard, styles.flatSurface]}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              setAccountDeletionOpen((current) => !current);
+              setAccountDeleteError("");
+            }}
+            style={({ pressed }) => [
+              styles.accountDeletionHeader,
+              pressed ? styles.buttonPressed : undefined,
+            ]}
+          >
+            <View style={styles.accountDeletionHeaderText}>
+              <Text style={styles.accountDeletionKicker}>Account</Text>
+              <Text style={styles.accountDeletionTitle}>アカウント削除</Text>
+            </View>
+            <Text style={styles.accountDeletionToggle}>
+              {accountDeletionOpen ? "閉じる" : "開く"}
+            </Text>
+          </Pressable>
+
+          {accountDeletionOpen ? (
+            <View style={styles.accountDeletionBody}>
+              <Text style={styles.accountDeletionLead}>
+                アカウント、ログイン連携、セッション、作成したメモを削除します。
+              </Text>
+              <TextInput
+                autoCapitalize="characters"
+                autoCorrect={false}
+                onChangeText={(value) => {
+                  setAccountDeleteConfirmation(value);
+                  if (accountDeleteError) {
+                    setAccountDeleteError("");
+                  }
+                }}
+                placeholder="DELETE"
+                placeholderTextColor="#a0a8b5"
+                style={styles.accountDeletionInput}
+                value={accountDeleteConfirmation}
+              />
+              {accountDeleteError ? (
+                <Text style={styles.accountDeletionError}>
+                  {accountDeleteError}
+                </Text>
+              ) : null}
+              <Button
+                disabled={accountDeleteConfirmation !== "DELETE"}
+                loading={accountDeleteLoading}
+                onPress={handleDeleteAccount}
+                style={styles.fullButton}
+                variant="danger"
+              >
+                アカウントを完全に削除
+              </Button>
+            </View>
+          ) : null}
+        </Card>
+
         <Card style={[styles.postsControls, styles.flatSurface]}>
           <View style={styles.searchCompactRow}>
             <TextInput
@@ -2454,6 +2574,72 @@ const styles = StyleSheet.create({
   toolbarButton: {
     flexGrow: 1,
     minWidth: 96,
+  },
+  accountDeletionCard: {
+    backgroundColor: colors.dangerSoft,
+    borderColor: "rgba(220, 38, 38, 0.16)",
+    borderRadius: radius.md,
+    marginBottom: 10,
+    padding: 0,
+  },
+  accountDeletionHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: 58,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  accountDeletionHeaderText: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  accountDeletionKicker: {
+    color: colors.danger,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  accountDeletionTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "900",
+    marginTop: 3,
+  },
+  accountDeletionToggle: {
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  accountDeletionBody: {
+    borderTopColor: "rgba(220, 38, 38, 0.14)",
+    borderTopWidth: 1,
+    gap: 10,
+    padding: 14,
+  },
+  accountDeletionLead: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 20,
+  },
+  accountDeletionInput: {
+    backgroundColor: colors.surfaceStrong,
+    borderColor: "rgba(220, 38, 38, 0.22)",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "800",
+    minHeight: 44,
+    paddingHorizontal: 12,
+  },
+  accountDeletionError: {
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 20,
   },
   toolButton: {
     minWidth: 72,

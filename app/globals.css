@@ -855,6 +855,117 @@ textarea {
   box-shadow: 0 14px 30px rgba(220, 38, 38, 0.1);
 }
 
+.account-page {
+  padding: 44px 0 72px;
+}
+
+.account-shell {
+  display: grid;
+  width: min(100% - 32px, 760px);
+  gap: 22px;
+  margin: 0 auto;
+}
+
+.account-heading {
+  display: grid;
+  gap: 10px;
+}
+
+.account-heading h1,
+.account-delete h2 {
+  margin: 0;
+  color: var(--text);
+  letter-spacing: 0;
+}
+
+.account-heading h1 {
+  font-size: clamp(2rem, 6vw, 3.25rem);
+  line-height: 1.05;
+}
+
+.account-heading p,
+.account-delete p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.75;
+}
+
+.account-delete {
+  display: grid;
+  gap: 22px;
+  border: 1px solid rgba(220, 38, 38, 0.18);
+  border-radius: var(--radius-lg);
+  background: rgba(254, 242, 242, 0.74);
+  padding: 24px;
+}
+
+.account-delete__kicker {
+  color: var(--danger) !important;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.account-delete h2 {
+  margin-top: 6px;
+  font-size: 1.55rem;
+  line-height: 1.25;
+}
+
+.account-delete__form {
+  display: grid;
+  gap: 14px;
+}
+
+.account-delete__form label {
+  display: grid;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.account-delete__form input {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid rgba(220, 38, 38, 0.24);
+  border-radius: var(--radius);
+  background: #ffffff;
+  color: var(--text);
+  font: inherit;
+  font-weight: 800;
+  padding: 0 14px;
+}
+
+.account-delete__form input:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.1);
+  outline: none;
+}
+
+.account-delete__submit {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(220, 38, 38, 0.24);
+  border-radius: var(--radius);
+  background: var(--danger);
+  color: #ffffff;
+  font-weight: 900;
+  padding: 0 18px;
+}
+
+.account-delete__submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.account-back-link {
+  justify-self: start;
+}
+
 .provider-icon {
   display: grid;
   width: 26px;

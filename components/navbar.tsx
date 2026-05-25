@@ -18,6 +18,7 @@ export default async function Navbar() {
             <>
               <Link href="/posts">メモ一覧</Link>
               <Link href="/posts/new">新規作成</Link>
+              <Link href="/account">アカウント</Link>
               <div className="nav-account">
                 <span>{session.user?.name ?? "ユーザー"}</span>
                 <form

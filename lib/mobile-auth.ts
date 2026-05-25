@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
 import { SignJWT, jwtVerify } from "jose";
 
 const MOBILE_ACCESS_TOKEN_EXPIRES_IN = "12h";
@@ -58,7 +59,12 @@ async function getUserFromBearerToken(request: Request) {
       return null;
     }
 
-    return { id: payload.sub };
+    const user = await prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { id: true },
+    });
+
+    return user;
   } catch {
     return null;
   }
@@ -70,7 +76,12 @@ export async function getMobileAuthUser(
   const session = await auth();
 
   if (session?.user?.id) {
-    return { id: session.user.id };
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { id: true },
+    });
+
+    return user;
   }
 
   return getUserFromBearerToken(request);
