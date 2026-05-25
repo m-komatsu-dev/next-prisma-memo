@@ -1,6 +1,6 @@
 name: CI
 
-on:
+"on":
   pull_request:
   workflow_dispatch:
 
@@ -40,6 +40,9 @@ jobs:
             package-lock.json
             mobile/package-lock.json
 
+      - name: Use project npm version
+        run: npm install -g npm@10.9.0
+
       - name: Install web dependencies
         run: npm ci
 
@@ -56,7 +59,9 @@ jobs:
         run: npm run build
 
       - name: Install mobile dependencies
-        run: cd mobile && npm ci
+        working-directory: mobile
+        run: npm ci
 
       - name: Mobile typecheck
-        run: cd mobile && npm run typecheck
+        working-directory: mobile
+        run: npm run typecheck
