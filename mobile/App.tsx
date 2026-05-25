@@ -38,6 +38,14 @@ import {
 } from "./src/storage/auth-token";
 import { Badge, Button, Card, TextField } from "./src/components/ui";
 import { colors, radius, spacing, typography } from "./src/theme";
+import {
+  createEditorLineId,
+  moveCompletedTodoToBottom,
+  normalizeChecklistContentForSave,
+  parseEditorContent,
+  serializeEditorLines,
+} from "./src/todo-utils";
+import type { EditorLine } from "./src/todo-utils";
 import type {
   MobileAiMode,
   MobilePost,
@@ -51,18 +59,6 @@ type AuthViewMode = "landing" | "login";
 type AutoSaveStatus = "unsaved" | "saving" | "saved" | "error";
 type StatusFilter = "all" | "mine" | "shared" | "published" | "private";
 type SortMode = "updated-desc" | "created-desc" | "title-asc";
-type EditorLine =
-  | {
-      id: string;
-      kind: "text";
-      text: string;
-    }
-  | {
-      checked: boolean;
-      id: string;
-      kind: "todo";
-      text: string;
-    };
 
 const AUTO_SAVE_DEBOUNCE_MS = 1500;
 
@@ -159,76 +155,6 @@ function getAutoSaveStatusText(status: AutoSaveStatus) {
 
 function appendAiSection(currentContent: string, result: string, heading: string) {
   return `${currentContent.trimEnd()}\n\n\n--- ${heading} ---\n${result}`.trimStart();
-}
-
-const TODO_LINE_PATTERN = /^(\s*)-\s+\[([ xX])\]\s?(.*)$/;
-
-function createEditorLineId() {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function parseEditorLine(rawLine: string): EditorLine {
-  const match = rawLine.match(TODO_LINE_PATTERN);
-
-  if (!match) {
-    return {
-      id: createEditorLineId(),
-      kind: "text",
-      text: rawLine,
-    };
-  }
-
-  return {
-    checked: match[2].toLowerCase() === "x",
-    id: createEditorLineId(),
-    kind: "todo",
-    text: match[3],
-  };
-}
-
-function parseEditorContent(content: string) {
-  const rawLines = content.length > 0 ? content.split("\n") : [""];
-  return rawLines.map(parseEditorLine);
-}
-
-function serializeEditorLine(line: EditorLine) {
-  if (line.kind === "todo") {
-    return `- [${line.checked ? "x" : " "}] ${line.text}`;
-  }
-
-  return line.text;
-}
-
-function serializeEditorLines(lines: EditorLine[]) {
-  return lines.map(serializeEditorLine).join("\n");
-}
-
-function normalizeChecklistContentForSave(content: string) {
-  return parseEditorContent(content)
-    .filter((line) => line.kind !== "todo" || line.text.trim().length > 0)
-    .map(serializeEditorLine)
-    .join("\n")
-    .trimEnd();
-}
-
-function moveCompletedTodoToBottom(lines: EditorLine[], index: number) {
-  if (lines[index]?.kind !== "todo") return lines;
-
-  let start = index;
-  let end = index;
-
-  while (start > 0 && lines[start - 1].kind === "todo") start -= 1;
-  while (end < lines.length - 1 && lines[end + 1].kind === "todo") end += 1;
-
-  const before = lines.slice(0, start);
-  const block = lines.slice(start, end + 1);
-  const after = lines.slice(end + 1);
-  const openItems = block.filter((line) => line.kind !== "todo" || !line.checked);
-  const completedItems = block.filter(
-    (line) => line.kind === "todo" && line.checked,
-  );
-
-  return [...before, ...openItems, ...completedItems, ...after];
 }
 
 function getFormattedCopyContent(post: MobilePost) {
@@ -443,9 +369,9 @@ function TodoContentDisplay({ content }: { content: string }) {
   return (
     <View style={styles.todoContent}>
       {lines.map((line, index) => {
-        const match = line.match(TODO_LINE_PATTERN);
+        const parsedLine = parseEditorContent(line)[0];
 
-        if (!match) {
+        if (!parsedLine || parsedLine.kind !== "todo") {
           return (
             <Text key={`${line}-${index}`} style={styles.todoParagraph}>
               {line || " "}
@@ -453,31 +379,31 @@ function TodoContentDisplay({ content }: { content: string }) {
           );
         }
 
-        const checked = match[2].toLowerCase() === "x";
-
         return (
           <View
             key={`${line}-${index}`}
             style={[
               styles.todoLine,
-              checked ? styles.todoLineChecked : undefined,
+              parsedLine.checked ? styles.todoLineChecked : undefined,
             ]}
           >
             <View
               style={[
                 styles.todoCheckbox,
-                checked ? styles.todoCheckboxChecked : undefined,
+                parsedLine.checked ? styles.todoCheckboxChecked : undefined,
               ]}
             >
-              {checked ? <Text style={styles.todoCheckboxMark}>x</Text> : null}
+              {parsedLine.checked ? (
+                <Text style={styles.todoCheckboxMark}>x</Text>
+              ) : null}
             </View>
             <Text
               style={[
                 styles.todoText,
-                checked ? styles.todoTextChecked : undefined,
+                parsedLine.checked ? styles.todoTextChecked : undefined,
               ]}
             >
-              {match[3] || " "}
+              {parsedLine.text || " "}
             </Text>
           </View>
         );

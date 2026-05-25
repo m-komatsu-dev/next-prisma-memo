@@ -96,3 +96,16 @@ export function canEditPost(accessRole: PostAccessRole) {
 export function canDeletePost(accessRole: PostAccessRole) {
   return accessRole === "owner";
 }
+
+export function canReadPost(accessRole: PostAccessRole | null | undefined) {
+  return (
+    accessRole === "owner" ||
+    accessRole === "editor" ||
+    accessRole === "viewer" ||
+    accessRole === "public"
+  );
+}
+
+export function canManagePostShares(accessRole: PostAccessRole | null | undefined) {
+  return accessRole === "owner";
+}

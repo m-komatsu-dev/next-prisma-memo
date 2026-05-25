@@ -1,0 +1,67 @@
+name: CI
+
+"on":
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Quality checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      AUTH_SECRET: ci-auth-secret-at-least-32-characters
+      AUTH_TRUST_HOST: "true"
+      AUTH_URL: http://localhost:3000
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
+      EXPO_PUBLIC_API_BASE_URL: http://localhost:3000
+      GEMINI_API_KEY: ci-dummy-gemini-api-key
+      GEMINI_MODEL: gemini-2.5-flash
+      GITHUB_ID: ci-dummy-github-id
+      GITHUB_SECRET: ci-dummy-github-secret
+      GOOGLE_CLIENT_ID: ci-dummy-google-client-id
+      GOOGLE_CLIENT_SECRET: ci-dummy-google-client-secret
+      MOBILE_AUTH_SECRET: ci-mobile-auth-secret-at-least-32-characters
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            mobile/package-lock.json
+
+      - name: Use project npm version
+        run: npm install -g npm@10.9.0
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Mobile typecheck
+        working-directory: mobile
+        run: npm run typecheck
