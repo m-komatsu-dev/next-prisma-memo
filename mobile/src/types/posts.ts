@@ -4,6 +4,8 @@ export type MobilePostTag = {
 };
 
 export type MobilePost = {
+  accessRole: "owner" | "editor" | "viewer" | "public";
+  authorId: string;
   id: number;
   title: string;
   content: string;
@@ -26,6 +28,24 @@ export type MobilePostPayload = {
   content: string;
   tags: string;
   published: boolean;
+};
+
+export type MobilePostShareRole = "viewer" | "editor";
+
+export type MobilePostShare = {
+  email: string;
+  id: number;
+  name: string | null;
+  role: MobilePostShareRole;
+  userId: string;
+};
+
+export type MobilePostSharesResponse = {
+  shares: MobilePostShare[];
+};
+
+export type MobilePostShareResponse = {
+  share: MobilePostShare;
 };
 
 export type MobileApiErrorResponse = {

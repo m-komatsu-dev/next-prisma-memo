@@ -1,5 +1,71 @@
 import type { Prisma } from "@/app/generated/prisma";
 
+const postTagsSelect = {
+  select: {
+    id: true,
+    name: true,
+  },
+} satisfies Prisma.PostSelect["tags"];
+
+export function getMemoListPostSelect(userId: string) {
+  return {
+    id: true,
+    title: true,
+    content: true,
+    published: true,
+    authorId: true,
+    createdAt: true,
+    updatedAt: true,
+    tags: postTagsSelect,
+    shares: {
+      where: { userId },
+      select: {
+        role: true,
+      },
+    },
+  } satisfies Prisma.PostSelect;
+}
+
+export function getPostDetailSelect(userId: string) {
+  return {
+    id: true,
+    title: true,
+    content: true,
+    published: true,
+    authorId: true,
+    createdAt: true,
+    updatedAt: true,
+    tags: postTagsSelect,
+    shares: {
+      where: { userId },
+      select: {
+        role: true,
+      },
+    },
+  } satisfies Prisma.PostSelect;
+}
+
+export function getPostEditorSelect(userId: string) {
+  return {
+    id: true,
+    title: true,
+    content: true,
+    published: true,
+    authorId: true,
+    tags: {
+      select: {
+        name: true,
+      },
+    },
+    shares: {
+      where: { userId, role: "editor" },
+      select: {
+        role: true,
+      },
+    },
+  } satisfies Prisma.PostSelect;
+}
+
 export const memoListPostSelect = {
   id: true,
   title: true,
@@ -8,12 +74,7 @@ export const memoListPostSelect = {
   authorId: true,
   createdAt: true,
   updatedAt: true,
-  tags: {
-    select: {
-      id: true,
-      name: true,
-    },
-  },
+  tags: postTagsSelect,
 } satisfies Prisma.PostSelect;//satisfiesは型チェックだけで、肩を壊さず安全に確認する。
 
 export const postDetailSelect = {
@@ -24,12 +85,7 @@ export const postDetailSelect = {
   authorId: true,
   createdAt: true,
   updatedAt: true,
-  tags: {
-    select: {
-      id: true,
-      name: true,
-    },
-  },
+  tags: postTagsSelect,
 } satisfies Prisma.PostSelect;
 
 export const postEditorSelect = {
@@ -37,6 +93,7 @@ export const postEditorSelect = {
   title: true,
   content: true,
   published: true,
+  authorId: true,
   tags: {
     select: {
       name: true,
@@ -45,13 +102,13 @@ export const postEditorSelect = {
 } satisfies Prisma.PostSelect;
 
 export type MemoListPost = Prisma.PostGetPayload<{
-  select: typeof memoListPostSelect;
+  select: ReturnType<typeof getMemoListPostSelect>;
 }>;
 
 export type PostDetail = Prisma.PostGetPayload<{
-  select: typeof postDetailSelect;
+  select: ReturnType<typeof getPostDetailSelect>;
 }>;
 
 export type PostEditorPost = Prisma.PostGetPayload<{
-  select: typeof postEditorSelect;
+  select: ReturnType<typeof getPostEditorSelect>;
 }>;

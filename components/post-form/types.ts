@@ -6,6 +6,7 @@ export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 export type PostFormProps = {
   mode: "new" | "edit";
+  canChangePublished?: boolean;
   initialPost?: {
     id: number;
     title: string;

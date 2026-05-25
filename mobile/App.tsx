@@ -20,11 +20,15 @@ import {
 import { generateMobileAiContent } from "./src/api/ai";
 import { deleteMobileAccount, loginWithEmailPassword } from "./src/api/auth";
 import {
+  createMobilePostShare,
   createMobilePost,
+  deleteMobilePostShare,
   deleteMobilePost,
+  fetchMobilePostShares,
   fetchMobilePost,
   fetchMobilePosts,
   MobileApiRequestError,
+  updateMobilePostShare,
   updateMobilePost,
 } from "./src/api/posts";
 import {
@@ -34,12 +38,18 @@ import {
 } from "./src/storage/auth-token";
 import { Badge, Button, Card, TextField } from "./src/components/ui";
 import { colors, radius, spacing, typography } from "./src/theme";
-import type { MobileAiMode, MobilePost, MobilePostPayload } from "./src/types/posts";
+import type {
+  MobileAiMode,
+  MobilePost,
+  MobilePostPayload,
+  MobilePostShare,
+  MobilePostShareRole,
+} from "./src/types/posts";
 
-type ViewMode = "list" | "detail" | "create" | "edit" | "account";
+type ViewMode = "list" | "detail" | "create" | "edit" | "share" | "account";
 type AuthViewMode = "landing" | "login";
 type AutoSaveStatus = "unsaved" | "saving" | "saved" | "error";
-type StatusFilter = "all" | "mine" | "published" | "private";
+type StatusFilter = "all" | "mine" | "shared" | "published" | "private";
 type SortMode = "updated-desc" | "created-desc" | "title-asc";
 type EditorLine =
   | {
@@ -73,14 +83,15 @@ const features = [
     description: "ログインしたユーザーごとに、必要なメモへ素早くアクセスできます。",
   },
   {
-    title: "全世界へ共有",
-    description: "メモの設定を切り替えるだけで、全世界に公開できます。",
+    title: "権限を分けて共有",
+    description: "必要な相手にだけ閲覧・編集権限を分けて共有できます。",
   },
 ];
 
 const statusFilters: { label: string; value: StatusFilter }[] = [
   { label: "すべて", value: "all" },
   { label: "自分", value: "mine" },
+  { label: "共有", value: "shared" },
   { label: "公開", value: "published" },
   { label: "非公開", value: "private" },
 ];
@@ -378,6 +389,12 @@ function PostCard({
             <Badge variant={post.published ? "public" : "default"}>
               {post.published ? "公開" : "非公開"}
             </Badge>
+            {post.accessRole === "viewer" ? (
+              <Badge variant="shared">viewer</Badge>
+            ) : null}
+            {post.accessRole === "editor" ? (
+              <Badge variant="shared">editor</Badge>
+            ) : null}
           </View>
 
           <Text style={styles.cardTitle} numberOfLines={2}>
@@ -755,6 +772,7 @@ function TodoListEditor({
 
 function MemoForm({
   autoSaveError,
+  canChangePublished = true,
   error,
   initialPost,
   mode,
@@ -765,6 +783,7 @@ function MemoForm({
   saving,
 }: {
   autoSaveError: string;
+  canChangePublished?: boolean;
   error: string;
   initialPost?: MobilePost | null;
   mode: "create" | "edit";
@@ -986,7 +1005,7 @@ function MemoForm({
           </View>
           <View style={styles.publishPill}>
             <Switch
-              disabled={saving}
+              disabled={saving || !canChangePublished}
               onValueChange={setPublished}
               value={published}
             />
@@ -1132,6 +1151,182 @@ function MemoForm({
   );
 }
 
+function ShareSettingsScreen({
+  addEmail,
+  addRole,
+  error,
+  loading,
+  message,
+  onAddEmailChange,
+  onAddRoleChange,
+  onAddShare,
+  onBack,
+  onRefresh,
+  onRevokeShare,
+  onUpdateShareRole,
+  saving,
+  shares,
+}: {
+  addEmail: string;
+  addRole: MobilePostShareRole;
+  error: string;
+  loading: boolean;
+  message: string;
+  onAddEmailChange: (nextEmail: string) => void;
+  onAddRoleChange: (nextRole: MobilePostShareRole) => void;
+  onAddShare: () => void;
+  onBack: () => void;
+  onRefresh: () => void;
+  onRevokeShare: (share: MobilePostShare) => void;
+  onUpdateShareRole: (share: MobilePostShare, role: MobilePostShareRole) => void;
+  saving: boolean;
+  shares: MobilePostShare[];
+}) {
+  return (
+    <ScrollView contentContainerStyle={styles.shareSettingsContent}>
+      <View style={styles.accountSettingsTopBar}>
+        <Button onPress={onBack} style={styles.toolButton} variant="secondary">
+          戻る
+        </Button>
+        <Button
+          disabled={loading || saving}
+          loading={loading}
+          onPress={onRefresh}
+          style={styles.toolButton}
+          variant="secondary"
+        >
+          更新
+        </Button>
+      </View>
+
+      <View style={styles.accountSettingsHeader}>
+        <Text style={styles.kicker}>Sharing</Text>
+        <Text style={styles.title}>共有設定</Text>
+        <Text style={styles.accountSettingsLead}>
+          メールアドレスで共有相手を追加し、閲覧・編集権限を管理します。
+        </Text>
+      </View>
+
+      <Card style={[styles.shareSettingsCard, styles.flatSurface]}>
+        <Text style={styles.accountSettingsSectionTitle}>共有相手を追加</Text>
+        <TextInput
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={!saving}
+          inputMode="email"
+          onChangeText={onAddEmailChange}
+          placeholder="user@example.com"
+          placeholderTextColor="#a0a8b5"
+          style={styles.shareEmailInput}
+          value={addEmail}
+        />
+
+        <View style={styles.shareRoleSelector}>
+          {(["viewer", "editor"] as const).map((role) => (
+            <Pressable
+              accessibilityRole="button"
+              key={role}
+              onPress={() => onAddRoleChange(role)}
+              style={[
+                styles.shareRoleChip,
+                addRole === role ? styles.shareRoleChipActive : undefined,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.shareRoleChipText,
+                  addRole === role ? styles.shareRoleChipTextActive : undefined,
+                ]}
+              >
+                {role}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <Button
+          disabled={saving}
+          loading={saving}
+          onPress={onAddShare}
+          style={styles.fullButton}
+        >
+          共有を追加
+        </Button>
+
+        {message ? <Text style={styles.shareSuccessText}>{message}</Text> : null}
+        {error ? <Text style={styles.formError}>{error}</Text> : null}
+      </Card>
+
+      <Card style={[styles.shareSettingsCard, styles.flatSurface]}>
+        <View style={styles.shareListHeader}>
+          <Text style={styles.accountSettingsSectionTitle}>共有中</Text>
+          <Badge variant="shared">{shares.length} users</Badge>
+        </View>
+
+        {loading ? (
+          <View style={styles.shareInlineLoading}>
+            <ActivityIndicator color={colors.primaryStrong} />
+            <Text style={styles.inlineLoading}>共有設定を読み込んでいます</Text>
+          </View>
+        ) : shares.length === 0 ? (
+          <Text style={styles.accountSettingsText}>
+            まだ特定ユーザーには共有していません。
+          </Text>
+        ) : (
+          <View style={styles.shareList}>
+            {shares.map((share) => (
+              <View key={share.id} style={styles.shareRow}>
+                <View style={styles.shareUserInfo}>
+                  <Text style={styles.shareUserName}>
+                    {share.name ?? "名前未設定"}
+                  </Text>
+                  <Text style={styles.shareUserEmail}>{share.email}</Text>
+                </View>
+
+                <View style={styles.shareRoleSelector}>
+                  {(["viewer", "editor"] as const).map((role) => (
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={saving}
+                      key={role}
+                      onPress={() => onUpdateShareRole(share, role)}
+                      style={[
+                        styles.shareRoleChip,
+                        share.role === role ? styles.shareRoleChipActive : undefined,
+                        saving ? styles.disabledControl : undefined,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.shareRoleChipText,
+                          share.role === role
+                            ? styles.shareRoleChipTextActive
+                            : undefined,
+                        ]}
+                      >
+                        {role}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Button
+                  disabled={saving}
+                  onPress={() => onRevokeShare(share)}
+                  style={styles.fullButton}
+                  variant="danger"
+                >
+                  共有解除
+                </Button>
+              </View>
+            ))}
+          </View>
+        )}
+      </Card>
+    </ScrollView>
+  );
+}
+
 export default function App() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [restoringToken, setRestoringToken] = useState(true);
@@ -1158,6 +1353,13 @@ export default function App() {
   const [autoSaveError, setAutoSaveError] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [postShares, setPostShares] = useState<MobilePostShare[]>([]);
+  const [shareEmail, setShareEmail] = useState("");
+  const [shareRole, setShareRole] = useState<MobilePostShareRole>("viewer");
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareSaving, setShareSaving] = useState(false);
+  const [shareError, setShareError] = useState("");
+  const [shareMessage, setShareMessage] = useState("");
   const [accountDeleteLoading, setAccountDeleteLoading] = useState(false);
   const [accountDeleteError, setAccountDeleteError] = useState("");
 
@@ -1177,6 +1379,11 @@ export default function App() {
     setDetailError("");
     setFormError("");
     setAutoSaveError("");
+    setPostShares([]);
+    setShareEmail("");
+    setShareRole("viewer");
+    setShareError("");
+    setShareMessage("");
     setAccountDeleteError("");
     setPassword("");
     setLoginError(nextLoginError);
@@ -1434,10 +1641,225 @@ export default function App() {
   }, []);
 
   const handleEdit = useCallback(() => {
+    if (
+      selectedPost?.accessRole !== "owner" &&
+      selectedPost?.accessRole !== "editor"
+    ) {
+      setDetailError("このメモを編集する権限がありません。");
+      return;
+    }
+
     setFormError("");
     setAutoSaveError("");
     setViewMode("edit");
-  }, []);
+  }, [selectedPost]);
+
+  const loadPostShares = useCallback(
+    async (postId: number) => {
+      if (!accessToken) {
+        setLoginError("ログインが必要です。");
+        return;
+      }
+
+      setShareLoading(true);
+      setShareError("");
+
+      try {
+        const shares = await fetchMobilePostShares(accessToken, postId);
+        setPostShares(shares);
+      } catch (caughtError) {
+        if (await handleAuthError(caughtError)) {
+          return;
+        }
+
+        setShareError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "共有設定の取得に失敗しました。",
+        );
+      } finally {
+        setShareLoading(false);
+      }
+    },
+    [accessToken, handleAuthError],
+  );
+
+  const openShareSettings = useCallback(() => {
+    if (!selectedPost) {
+      setDetailError("メモが選択されていません。");
+      return;
+    }
+
+    if (selectedPost.accessRole !== "owner") {
+      setDetailError("共有設定を変更する権限がありません。");
+      return;
+    }
+
+    setShareEmail("");
+    setShareRole("viewer");
+    setShareError("");
+    setShareMessage("");
+    setViewMode("share");
+    void loadPostShares(selectedPost.id);
+  }, [loadPostShares, selectedPost]);
+
+  const handleAddShare = useCallback(async () => {
+    if (!accessToken || !selectedPost) {
+      setLoginError("ログインが必要です。");
+      return;
+    }
+
+    if (selectedPost.accessRole !== "owner") {
+      setShareError("共有設定を変更する権限がありません。");
+      return;
+    }
+
+    const nextEmail = shareEmail.trim();
+    if (!nextEmail) {
+      setShareError("メールアドレスを入力してください。");
+      return;
+    }
+
+    setShareSaving(true);
+    setShareError("");
+    setShareMessage("");
+
+    try {
+      const share = await createMobilePostShare(accessToken, selectedPost.id, {
+        email: nextEmail,
+        role: shareRole,
+      });
+      setPostShares((currentShares) => {
+        const exists = currentShares.some(
+          (currentShare) => currentShare.id === share.id,
+        );
+
+        return exists
+          ? currentShares.map((currentShare) =>
+              currentShare.id === share.id ? share : currentShare,
+            )
+          : [share, ...currentShares];
+      });
+      setShareEmail("");
+      setShareMessage(`${share.email} に共有しました。`);
+    } catch (caughtError) {
+      if (await handleAuthError(caughtError)) {
+        return;
+      }
+
+      setShareError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "共有設定の追加に失敗しました。",
+      );
+    } finally {
+      setShareSaving(false);
+    }
+  }, [accessToken, handleAuthError, selectedPost, shareEmail, shareRole]);
+
+  const handleUpdateShareRole = useCallback(
+    async (share: MobilePostShare, role: MobilePostShareRole) => {
+      if (!accessToken || !selectedPost || share.role === role) {
+        return;
+      }
+
+      if (selectedPost.accessRole !== "owner") {
+        setShareError("共有設定を変更する権限がありません。");
+        return;
+      }
+
+      setShareSaving(true);
+      setShareError("");
+      setShareMessage("");
+
+      try {
+        const updatedShare = await updateMobilePostShare(
+          accessToken,
+          selectedPost.id,
+          share.id,
+          role,
+        );
+        setPostShares((currentShares) =>
+          currentShares.map((currentShare) =>
+            currentShare.id === updatedShare.id ? updatedShare : currentShare,
+          ),
+        );
+        setShareMessage("共有権限を更新しました。");
+      } catch (caughtError) {
+        if (await handleAuthError(caughtError)) {
+          return;
+        }
+
+        setShareError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "共有権限の更新に失敗しました。",
+        );
+      } finally {
+        setShareSaving(false);
+      }
+    },
+    [accessToken, handleAuthError, selectedPost],
+  );
+
+  const performRevokeShare = useCallback(
+    async (share: MobilePostShare) => {
+      if (!accessToken || !selectedPost) {
+        setLoginError("ログインが必要です。");
+        return;
+      }
+
+      if (selectedPost.accessRole !== "owner") {
+        setShareError("共有設定を変更する権限がありません。");
+        return;
+      }
+
+      setShareSaving(true);
+      setShareError("");
+      setShareMessage("");
+
+      try {
+        await deleteMobilePostShare(accessToken, selectedPost.id, share.id);
+        setPostShares((currentShares) =>
+          currentShares.filter((currentShare) => currentShare.id !== share.id),
+        );
+        setShareMessage("共有を解除しました。");
+      } catch (caughtError) {
+        if (await handleAuthError(caughtError)) {
+          return;
+        }
+
+        setShareError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "共有解除に失敗しました。",
+        );
+      } finally {
+        setShareSaving(false);
+      }
+    },
+    [accessToken, handleAuthError, selectedPost],
+  );
+
+  const confirmRevokeShare = useCallback(
+    (share: MobilePostShare) => {
+      Alert.alert(
+        "共有を解除しますか？",
+        `${share.email} はこのメモを見られなくなります。`,
+        [
+          { style: "cancel", text: "キャンセル" },
+          {
+            onPress: () => {
+              void performRevokeShare(share);
+            },
+            style: "destructive",
+            text: "解除",
+          },
+        ],
+      );
+    },
+    [performRevokeShare],
+  );
 
   const copySelectedPost = useCallback(async () => {
     if (!selectedPost) {
@@ -1651,6 +2073,11 @@ export default function App() {
       return;
     }
 
+    if (selectedPost.accessRole !== "owner") {
+      setDetailError("このメモを削除する権限がありません。");
+      return;
+    }
+
     setDeleting(true);
     setDetailError("");
 
@@ -1706,7 +2133,9 @@ export default function App() {
 
         const matchesStatus =
           selectedFilter === "all" ||
-          selectedFilter === "mine" ||
+          (selectedFilter === "mine" && post.accessRole === "owner") ||
+          (selectedFilter === "shared" &&
+            (post.accessRole === "viewer" || post.accessRole === "editor")) ||
           (selectedFilter === "published" && post.published) ||
           (selectedFilter === "private" && !post.published);
 
@@ -1727,11 +2156,19 @@ export default function App() {
   }, [posts, query, selectedFilter, sortMode]);
   const publishedCount = posts.filter((post) => post.published).length;
   const privateCount = posts.filter((post) => !post.published).length;
+  const myMemoCount = posts.filter((post) => post.accessRole === "owner").length;
+  const sharedCount = posts.filter(
+    (post) => post.accessRole === "viewer" || post.accessRole === "editor",
+  ).length;
   const selectedFilterLabel =
     statusFilters.find((filter) => filter.value === selectedFilter)?.label ??
     "すべて";
   const selectedSortLabel =
     sortOptions.find((option) => option.value === sortMode)?.label ?? "更新日";
+  const selectedPostCanEdit =
+    selectedPost?.accessRole === "owner" || selectedPost?.accessRole === "editor";
+  const selectedPostCanDelete = selectedPost?.accessRole === "owner";
+  const selectedPostCanManageShares = selectedPost?.accessRole === "owner";
 
   if (restoringToken) {
     return (
@@ -1939,6 +2376,7 @@ export default function App() {
         <StatusBar barStyle="dark-content" />
         <MemoForm
           autoSaveError={autoSaveError}
+          canChangePublished={selectedPost.accessRole === "owner"}
           error={formError}
           initialPost={selectedPost}
           key={`edit-${selectedPost.id}`}
@@ -1950,6 +2388,36 @@ export default function App() {
             void handleSaveEdit(payload, draftPostId);
           }}
           saving={saving}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  if (viewMode === "share" && selectedPost) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" />
+        <ShareSettingsScreen
+          addEmail={shareEmail}
+          addRole={shareRole}
+          error={shareError}
+          loading={shareLoading}
+          message={shareMessage}
+          onAddEmailChange={setShareEmail}
+          onAddRoleChange={setShareRole}
+          onAddShare={() => {
+            void handleAddShare();
+          }}
+          onBack={() => setViewMode("detail")}
+          onRefresh={() => {
+            void loadPostShares(selectedPost.id);
+          }}
+          onRevokeShare={confirmRevokeShare}
+          onUpdateShareRole={(share, role) => {
+            void handleUpdateShareRole(share, role);
+          }}
+          saving={shareSaving}
+          shares={postShares}
         />
       </SafeAreaView>
     );
@@ -1979,23 +2447,37 @@ export default function App() {
               >
                 {copied ? "コピー済み" : "コピー"}
               </Button>
-              <Button
-                disabled={!selectedPost || detailLoading || deleting}
-                onPress={handleEdit}
-                style={styles.toolButton}
-                variant="secondary"
-              >
-                編集
-              </Button>
-              <Button
-                disabled={!selectedPost || detailLoading || deleting}
-                loading={deleting}
-                onPress={confirmDelete}
-                style={styles.toolButton}
-                variant="danger"
-              >
-                削除
-              </Button>
+              {selectedPostCanEdit ? (
+                <Button
+                  disabled={!selectedPost || detailLoading || deleting}
+                  onPress={handleEdit}
+                  style={styles.toolButton}
+                  variant="secondary"
+                >
+                  編集
+                </Button>
+              ) : null}
+              {selectedPostCanManageShares ? (
+                <Button
+                  disabled={!selectedPost || detailLoading || deleting}
+                  onPress={openShareSettings}
+                  style={styles.toolButton}
+                  variant="secondary"
+                >
+                  共有
+                </Button>
+              ) : null}
+              {selectedPostCanDelete ? (
+                <Button
+                  disabled={!selectedPost || detailLoading || deleting}
+                  loading={deleting}
+                  onPress={confirmDelete}
+                  style={styles.toolButton}
+                  variant="danger"
+                >
+                  削除
+                </Button>
+              ) : null}
             </View>
           </View>
 
@@ -2012,6 +2494,12 @@ export default function App() {
                   <Badge variant={selectedPost.published ? "public" : "default"}>
                     {selectedPost.published ? "公開" : "非公開"}
                   </Badge>
+                  {selectedPost.accessRole === "viewer" ? (
+                    <Badge variant="shared">viewer</Badge>
+                  ) : null}
+                  {selectedPost.accessRole === "editor" ? (
+                    <Badge variant="shared">editor</Badge>
+                  ) : null}
                 </View>
 
                 <View style={styles.postMetaGrid}>
@@ -2085,7 +2573,7 @@ export default function App() {
             <Text style={styles.kicker}>Memo workspace</Text>
             <Text style={styles.title}>メモ一覧</Text>
             <Text style={styles.postsSummary}>
-              {posts.length}件のメモ / 公開 {publishedCount}件 / 非公開 {privateCount}件
+              {posts.length}件 / 自分 {myMemoCount}件 / 共有 {sharedCount}件 / 公開 {publishedCount}件 / 非公開 {privateCount}件
             </Text>
           </View>
         </View>
@@ -2652,6 +3140,102 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
     lineHeight: 20,
+  },
+  shareSettingsContent: {
+    paddingBottom: 42,
+    paddingHorizontal: spacing.lg,
+    paddingTop: 22,
+  },
+  shareSettingsCard: {
+    backgroundColor: colors.surface,
+    gap: 14,
+    marginBottom: 12,
+    padding: 18,
+  },
+  shareEmailInput: {
+    backgroundColor: colors.white,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "700",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  shareRoleSelector: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  shareRoleChip: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    minHeight: 38,
+    minWidth: 86,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  shareRoleChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  shareRoleChipText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  shareRoleChipTextActive: {
+    color: colors.white,
+  },
+  shareSuccessText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 20,
+  },
+  shareListHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    justifyContent: "space-between",
+  },
+  shareInlineLoading: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
+  shareList: {
+    gap: 12,
+  },
+  shareRow: {
+    backgroundColor: colors.white,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: 12,
+    padding: 14,
+  },
+  shareUserInfo: {
+    gap: 3,
+  },
+  shareUserName: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  shareUserEmail: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
+  },
+  disabledControl: {
+    opacity: 0.55,
   },
   toolButton: {
     minWidth: 72,

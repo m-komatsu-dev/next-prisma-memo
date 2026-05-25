@@ -1,5 +1,14 @@
 import { auth } from "@/auth";
-import { postDetailSelect, type PostDetail } from "@/lib/post-selects";// メモ詳細画面で必要な項目だけをデータベースから取るための設定を読み込む
+import {
+  getPostDetailSelect,
+  type PostDetail,
+} from "@/lib/post-selects";// メモ詳細画面で必要な項目だけをデータベースから取るための設定を読み込む
+import {
+  canDeletePost,
+  canEditPost,
+  getPostAccessRole,
+  getReadablePostWhere,
+} from "@/lib/post-permissions";
 import { prisma } from "@/lib/prisma";
 import { logServerError, throwLoggedActionError } from "@/lib/server-errors";
 import { postIdValueSchema } from "@/lib/zod";
@@ -9,6 +18,7 @@ import { notFound, redirect } from "next/navigation";
 import PostDetailActions from "./post-detail-actions";// 編集や削除など、メモ詳細画面の操作ボタンをまとめた部品を読み込みます。
 import { TodoListContent } from "@/components/todo-list";
 import type { Metadata } from "next";
+import PostShareSettings from "./post-share-settings";
 
 export const metadata: Metadata = {
   title: "My Memo App - メモ詳細",
@@ -40,12 +50,9 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
   // 指定された id のメモをデータベースから 1 件探します。
   try {
     post = await prisma.post.findFirst({
-      // URL の id と一致し、自分のメモまたは公開済みメモだけを対象にします。
-      where: {
-        id: postId,
-        OR: [{ authorId: session.user.id }, { published: true }],
-      },
-      select: postDetailSelect,// 画面表示に必要な項目だけを取得します。
+      // URL の id と一致し、自分のメモ、公開済みメモ、または自分に共有されたメモだけを対象にします。
+      where: getReadablePostWhere(postId, session.user.id),
+      select: getPostDetailSelect(session.user.id),// 画面表示に必要な項目だけを取得します。
     });
   } catch (error) {
     logServerError(error, {
@@ -61,8 +68,32 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
     notFound();
   }
 
-  const canManage = post.authorId === session.user.id;  // ログイン中のユーザーが、このメモの作成者かどうかを判定します。
+  const accessRole = getPostAccessRole(post, session.user.id);
+  const canManage = accessRole === "owner";  // ログイン中のユーザーが、このメモの作成者かどうかを判定します。
+  const canEdit = canEditPost(accessRole);
+  const canDelete = canDeletePost(accessRole);
   const authorDisplayName = canManage ? session.user.name ?? "あなた" : "匿名ユーザー";// 他人の公開メモでは作成者の個人情報を出さず、本人のメモだけ自分の名前を表示します。
+  const sharedUsers = canManage
+    ? await prisma.postShare.findMany({
+        where: {
+          postId,
+          post: {
+            authorId: session.user.id,
+          },
+        },
+        select: {
+          id: true,
+          role: true,
+          user: {
+            select: {
+              email: true,
+              name: true,
+            },
+          },
+        },
+        orderBy: { updatedAt: "desc" },
+      })
+    : [];
 
   // このメモを削除するためのサーバー側の関数です。
   async function deletePost() {
@@ -137,7 +168,9 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
 
         {/* 編集・削除・AI要約などの操作ボタンを表示する部品です。 */}
         <PostDetailActions          
-          canManage={canManage}// 作成者本人なら編集や削除ができるようにします。
+          canDelete={canDelete}
+          canEdit={canEdit}
+          canManageShares={canManage}
           content={post.content}// 操作部品にメモ本文を渡します。          
           deleteAction={deletePost}// 削除ボタンが押された時に実行する関数を渡します。
           editHref={`/posts/${post.id}/edit`}
@@ -187,6 +220,18 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
             <TodoListContent content={post.content} />
           </div>
         </article>
+
+        {canManage && (
+          <PostShareSettings
+            postId={post.id}
+            shares={sharedUsers.map((share) => ({
+              email: share.user.email ?? "メール未設定",
+              id: share.id,
+              name: share.user.name,
+              role: share.role,
+            }))}
+          />
+        )}
       </div>
     </main>
   );

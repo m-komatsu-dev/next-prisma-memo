@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 import { buildTagsConnectOrCreate } from "@/lib/post-tags";// 入力されたタグを、既存タグへの接続または新規作成用の形に変換する関数を読み込みます。
+import { getEditablePostWhere } from "@/lib/post-permissions";
 import {  
   getPublicErrorMessage,// ユーザーに見せても安全なエラーメッセージを作る関数です。
   logServerError,// サーバー側のログに詳しいエラー情報を残す関数です。
@@ -23,6 +24,7 @@ import { redirect } from "next/navigation";
 export async function autoSaveEditPost(data: PostDraftPayloadInput) {
   const session = await auth();
   if (!session?.user?.id) return { success: false, message: "ログインが必要です。" };
+  const userId = session.user.id;
 
   const validatedFields = postDraftPayloadSchema.safeParse(data);// 受け取ったデータが、自動保存に必要な形式として正しいか検証します。
   if (!validatedFields.success) {
@@ -35,31 +37,45 @@ export async function autoSaveEditPost(data: PostDraftPayloadInput) {
   const payload = validatedFields.data;// 検証に成功した、安全に使えるデータを payload として取り出します。
   if (!payload.id) return { success: false, message: "更新対象のメモが見つかりません。" };// 更新する投稿 ID がなければ、どのメモを更新するか分からないので失敗を返します。
 
+  const postId = payload.id;
   const tagsData = buildTagsConnectOrCreate(payload.tags);  // 入力されたタグ文字列を、Prisma の connectOrCreate で使える形に変換します。
 
   try {
-    await prisma.post.update({
-      where: { id: payload.id, authorId: session.user.id },
-      data: {
-        title: payload.title.trim() || "無題の下書き",
-        content: payload.content,
-        published: payload.published ?? false,
-        // 投稿に紐づくタグを更新します。
-        tags: {
-          set: [],// いったん既存のタグとの紐づけをすべて外します。
-          connectOrCreate: tagsData,// 入力されたタグを、既存なら接続し、なければ作成して接続します。
+    await prisma.$transaction(async (tx) => {
+      const editablePost = await tx.post.findFirst({
+        where: getEditablePostWhere(postId, userId),
+        select: { authorId: true, id: true },
+      });
+
+      if (!editablePost) {
+        throw new Error("対象のメモが見つからないか、編集する権限がありません。");
+      }
+
+      await tx.post.update({
+        where: { id: editablePost.id },
+        data: {
+          title: payload.title.trim() || "無題の下書き",
+          content: payload.content,
+          ...(editablePost.authorId === userId
+            ? { published: payload.published ?? false }
+            : {}),
+          // 投稿に紐づくタグを更新します。
+          tags: {
+            set: [],// いったん既存のタグとの紐づけをすべて外します。
+            connectOrCreate: tagsData,// 入力されたタグを、既存なら接続し、なければ作成して接続します。
+          },
         },
-      },
+      });
     });
     revalidatePath("/posts");
-    revalidatePath(`/posts/${payload.id}`);
+    revalidatePath(`/posts/${postId}`);
     return { success: true };
   } catch (error) {
     // 開発者が原因を追えるように、詳しいエラー情報をサーバーログへ残します。
     logServerError(error, {
       action: "autoSaveEditPost",
-      userId: session.user.id,
-      postId: payload.id,
+      userId,
+      postId,
     });
     return {
       success: false,
@@ -72,6 +88,7 @@ export async function autoSaveEditPost(data: PostDraftPayloadInput) {
 export async function saveEditPost(data: PostSavePayloadInput) {
   const session = await auth();
   if (!session?.user?.id) redirect("/");
+  const userId = session.user.id;
 
   const validatedFields = postSavePayloadSchema.safeParse(data);// 受け取ったデータが、通常保存に必要な形式として正しいか検証します。
   if (!validatedFields.success) {
@@ -81,20 +98,34 @@ export async function saveEditPost(data: PostSavePayloadInput) {
   const payload = validatedFields.data;
   if (!payload.id) throw new Error("更新対象のメモが見つかりません。");
 
+  const postId = payload.id;
   // データベース更新でエラーが起きる可能性があるため、try/catch で囲みます。
   try {
-    await prisma.post.update({
-      where: { id: payload.id, authorId: session.user.id },
-      data: {
-        title: payload.title.trim(),
-        content: payload.content.trim(),
-        published: payload.published,// 公開状態を、送られてきた値のまま保存します。
-        // 投稿に紐づくタグを更新します。
-        tags: {
-          set: [],// いったん既存のタグとの紐づけをすべて外します。
-          connectOrCreate: buildTagsConnectOrCreate(payload.tags),// 入力されたタグを、既存なら接続し、なければ作成して接続します。
+    await prisma.$transaction(async (tx) => {
+      const editablePost = await tx.post.findFirst({
+        where: getEditablePostWhere(postId, userId),
+        select: { authorId: true, id: true },
+      });
+
+      if (!editablePost) {
+        throw new Error("対象のメモが見つからないか、編集する権限がありません。");
+      }
+
+      await tx.post.update({
+        where: { id: editablePost.id },
+        data: {
+          title: payload.title.trim(),
+          content: payload.content.trim(),
+          ...(editablePost.authorId === userId
+            ? { published: payload.published }
+            : {}),
+          // 投稿に紐づくタグを更新します。
+          tags: {
+            set: [],// いったん既存のタグとの紐づけをすべて外します。
+            connectOrCreate: buildTagsConnectOrCreate(payload.tags),// 入力されたタグを、既存なら接続し、なければ作成して接続します。
+          },
         },
-      },
+      });
     });
   } catch (error) {
     // エラーをログに残し、画面側には安全なメッセージとして投げ直します。
@@ -103,8 +134,8 @@ export async function saveEditPost(data: PostSavePayloadInput) {
       // ログに追加する、調査用の補足情報です。
       {
         action: "saveEditPost",
-        userId: session.user.id,
-        postId: payload.id,
+        userId,
+        postId,
       },
       "メモの更新に失敗しました。",
     );
@@ -112,7 +143,7 @@ export async function saveEditPost(data: PostSavePayloadInput) {
 
   revalidatePath("/posts");
   // 更新した投稿の詳細ページのキャッシュも更新対象にします。
-  revalidatePath(`/posts/${payload.id}`);
+  revalidatePath(`/posts/${postId}`);
   redirect("/posts");
 }
 

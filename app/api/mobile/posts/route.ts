@@ -1,7 +1,9 @@
 import { getMobileAuthUser } from "@/lib/mobile-auth";
+import { serializeMobilePost } from "@/lib/mobile-post-response";
 import { buildTagsConnectOrCreate } from "@/lib/post-tags";
 import { mobileCorsOptions, withMobileCors } from "@/lib/mobile-cors";
-import { memoListPostSelect, postDetailSelect } from "@/lib/post-selects";
+import { getMemoListPostSelect, getPostDetailSelect } from "@/lib/post-selects";
+import { getMobileAccessiblePostsWhere } from "@/lib/post-permissions";
 import { prisma } from "@/lib/prisma";
 import { logServerError } from "@/lib/server-errors";
 import {
@@ -26,27 +28,15 @@ export async function GET(request: Request) {
 
   try {
     const posts = await prisma.post.findMany({
-      where: { authorId: authUser.id },
-      select: memoListPostSelect,
+      where: getMobileAccessiblePostsWhere(authUser.id),
+      select: getMemoListPostSelect(authUser.id),
       orderBy: { updatedAt: "desc" },
     });
 
     return withMobileCors(
       request,
       NextResponse.json({
-        posts: posts.map((post) => ({
-          id: post.id,
-          title: post.title,
-          content: post.content,
-          // TodoはDBモデルではなく、既存どおりcontentからパースする設計です。
-          published: post.published,
-          createdAt: post.createdAt.toISOString(),
-          updatedAt: post.updatedAt.toISOString(),
-          tags: post.tags.map((tag) => ({
-            id: tag.id,
-            name: tag.name,
-          })),
-        })),
+        posts: posts.map((post) => serializeMobilePost(post, authUser.id)),
       }),
     );
   } catch (error) {
@@ -124,25 +114,13 @@ export async function POST(request: Request) {
           connectOrCreate: buildTagsConnectOrCreate(payload.tags),
         },
       },
-      select: postDetailSelect,
+      select: getPostDetailSelect(authUser.id),
     });
 
     return withMobileCors(
       request,
       NextResponse.json({
-        post: {
-          id: post.id,
-          title: post.title,
-          content: post.content,
-          // TodoはDBモデルではなく、既存どおりcontentからパースする設計です。
-          published: post.published,
-          createdAt: post.createdAt.toISOString(),
-          updatedAt: post.updatedAt.toISOString(),
-          tags: post.tags.map((tag) => ({
-            id: tag.id,
-            name: tag.name,
-          })),
-        },
+        post: serializeMobilePost(post, authUser.id),
       }),
     );
   } catch (error) {

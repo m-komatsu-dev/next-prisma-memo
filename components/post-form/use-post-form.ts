@@ -1,10 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { generateAiContent, type AiMode } from "@/app/posts/[id]/edit/ai-actions";
+import { generateAiContent } from "@/app/posts/[id]/edit/ai-actions";
+import type { AiMode } from "@/lib/ai-modes";
 import type { PostFormPayload, PostFormProps, SaveStatus } from "./types";
 
-export function usePostForm({ mode, initialPost, autoSaveAction, saveAction }: PostFormProps) {
+export function usePostForm({
+  mode,
+  canChangePublished = true,
+  initialPost,
+  autoSaveAction,
+  saveAction,
+}: PostFormProps) {
   const [postId, setPostId] = useState<number | null>(initialPost?.id ?? null);
   const [title, setTitle] = useState(initialPost?.title ?? "");
   const [content, setContent] = useState(initialPost?.content ?? "");
@@ -112,6 +119,8 @@ export function usePostForm({ mode, initialPost, autoSaveAction, saveAction }: P
   };
 
   const handlePublishedChange = (nextPublished: boolean) => {
+    if (!canChangePublished) return;
+
     // Confirmation is only needed when moving from private to public.
     if (nextPublished && !published) {
       const confirmed = window.confirm("このメモを一般に公開してもよろしいですか？");
@@ -138,5 +147,6 @@ export function usePostForm({ mode, initialPost, autoSaveAction, saveAction }: P
     handleAiTask,
     handleSubmit,
     handlePublishedChange,
+    canChangePublished,
   };
 }

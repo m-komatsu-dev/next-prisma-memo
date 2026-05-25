@@ -3,7 +3,8 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { autoSavePost } from "./actions";
-import { generateAiContent, AiMode } from "./ai-actions";
+import { generateAiContent } from "./ai-actions";
+import type { AiMode } from "@/lib/ai-modes";
 import Link from "next/link";
 
 type EditablePost = {

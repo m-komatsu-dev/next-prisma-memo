@@ -1,13 +1,15 @@
 "use client";
 
-import { ArrowLeft, Check, Clipboard, Edit3, Trash2, X } from "lucide-react";
+import { ArrowLeft, Check, Clipboard, Edit3, Share2, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { useFormStatus } from "react-dom";
 
 // PostDetailActions コンポーネントが受け取るデータの型を定義します。
 type PostDetailActionsProps = {
-  canManage: boolean;  // ログインユーザーが、このメモを編集・削除できるかを表す真偽値です。
+  canDelete: boolean;
+  canEdit: boolean;
+  canManageShares: boolean;
   content: string;  // コピー対象になるメモ本文です。
   // 削除フォームが送信されたときに実行されるサーバーアクションです。
   deleteAction: () => Promise<void>;
@@ -30,7 +32,9 @@ function DeleteSubmitButton() {
 
 // メモ詳細ページの操作ボタン一式を表示するメインコンポーネントです。
 export default function PostDetailActions({
-  canManage,  // 編集・削除できるかどうかを受け取ります。
+  canDelete,
+  canEdit,
+  canManageShares,
   content,  // メモ本文を受け取ります。
   deleteAction,  // 削除時に呼ぶ処理を受け取ります。
   editHref,  // 編集ページの URL を受け取ります。
@@ -64,14 +68,22 @@ export default function PostDetailActions({
           <span>{copied ? "コピー済み" : "コピー"}</span>
         </button>
 
-        {/* canManage が true のときだけ、編集・削除ボタンを表示します。 */}
-        {canManage && (
-          <>
-            <Link className="post-tool-button post-tool-button--primary" href={editHref}>
-              <Edit3 aria-hidden="true" size={18} />
-              <span>編集</span>
-            </Link>
+        {canManageShares && (
+          <a className="post-tool-button" href="#share-settings">
+            <Share2 aria-hidden="true" size={18} />
+            <span>共有</span>
+          </a>
+        )}
 
+        {canEdit && (
+          <Link className="post-tool-button post-tool-button--primary" href={editHref}>
+            <Edit3 aria-hidden="true" size={18} />
+            <span>編集</span>
+          </Link>
+        )}
+
+        {canDelete && (
+          <>
             <button
               className="post-tool-button post-tool-button--danger"
               onClick={() => setConfirmOpen(true)}

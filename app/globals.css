@@ -1635,6 +1635,11 @@ textarea {
   outline-offset: 3px;
 }
 
+.publish-toggle--readonly {
+  justify-content: center;
+  padding: 9px 12px;
+}
+
 .post-editor__sheet {
   overflow: hidden;
   border: 1px solid var(--border);
@@ -2188,6 +2193,173 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.post-share-panel {
+  max-width: 42rem;
+  margin: 18px auto 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.9);
+  padding: clamp(20px, 4vw, 30px);
+  box-shadow: var(--shadow-soft);
+}
+
+.post-share-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.post-share-panel__eyebrow {
+  margin: 0 0 4px;
+  color: var(--primary-strong);
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.post-share-panel h2 {
+  margin: 0;
+  font-size: 1.4rem;
+  line-height: 1.2;
+}
+
+.post-share-add-form,
+.post-share-role-form {
+  display: grid;
+  gap: 10px;
+}
+
+.post-share-add-form {
+  grid-template-columns: minmax(220px, 1fr) minmax(130px, 0.28fr) auto;
+  align-items: end;
+  margin-bottom: 12px;
+}
+
+.post-share-add-form label,
+.post-share-role-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.post-share-add-form label > span,
+.post-share-role-form label > span {
+  color: var(--text-soft);
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.post-share-add-form input,
+.post-share-add-form select,
+.post-share-role-form select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-strong);
+  color: var(--text);
+  padding: 0 12px;
+  font-weight: 800;
+}
+
+.post-share-button {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(37, 99, 235, 0.22);
+  border-radius: var(--radius);
+  background: var(--primary);
+  color: #ffffff;
+  padding: 0 14px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.post-share-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.post-share-button--danger {
+  border-color: rgba(220, 38, 38, 0.24);
+  background: rgba(220, 38, 38, 0.08);
+  color: var(--danger);
+}
+
+.post-share-message {
+  margin: 10px 0 0;
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.post-share-message--success {
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--accent);
+}
+
+.post-share-message--error {
+  background: rgba(220, 38, 38, 0.08);
+  color: var(--danger);
+}
+
+.post-share-empty {
+  margin: 14px 0 0;
+  color: var(--text-muted);
+  font-weight: 800;
+}
+
+.post-share-list {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.post-share-row {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(248, 250, 252, 0.76);
+  padding: 12px;
+}
+
+.post-share-user {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.post-share-user__name {
+  color: var(--text);
+  font-weight: 900;
+}
+
+.post-share-user__email {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.post-share-row__forms {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.post-share-role-form {
+  grid-template-columns: minmax(130px, 180px) auto;
+  align-items: end;
+}
+
 .todo-content {
   display: grid;
   gap: 8px;
@@ -2577,6 +2749,20 @@ textarea {
 
   .post-content {
     line-height: 1.9;
+  }
+
+  .post-share-panel {
+    border-radius: var(--radius);
+  }
+
+  .post-share-panel__header {
+    display: grid;
+  }
+
+  .post-share-add-form,
+  .post-share-row__forms,
+  .post-share-role-form {
+    grid-template-columns: 1fr;
   }
 
   .post-ai-summary__header {

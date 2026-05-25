@@ -1,6 +1,11 @@
 import { auth } from "@/auth";
 import type { Prisma } from "@/app/generated/prisma";
-import { memoListPostSelect, type MemoListPost } from "@/lib/post-selects";
+import { getMemoListPostSelect, type MemoListPost } from "@/lib/post-selects";
+import {
+  getAccessiblePostsWhere,
+  getPostAccessRole,
+  getSharedPostsWhere,
+} from "@/lib/post-permissions";
 import { prisma } from "@/lib/prisma";
 import { logServerError, throwLoggedActionError } from "@/lib/server-errors";
 import {
@@ -18,7 +23,7 @@ export const metadata: Metadata = {
   description: "あなたのメモ一覧を表示します。ここから新しいメモを作成したり、既存のメモを編集・削除できます。公開設定もこのページで管理できます。",
 };
 
-type PostsFilter = "all" | "published" | "private" | "mine";
+type PostsFilter = "all" | "published" | "private" | "mine" | "shared";
 
 type PostsPageProps = {
   searchParams?: Promise<{
@@ -26,7 +31,13 @@ type PostsPageProps = {
   }>;
 };
 
-const postFilters = new Set<PostsFilter>(["all", "published", "private", "mine"]);
+const postFilters = new Set<PostsFilter>([
+  "all",
+  "published",
+  "private",
+  "mine",
+  "shared",
+]);
 
 function resolvePostsFilter(filter: string | string[] | undefined): PostsFilter {
   const value = Array.isArray(filter) ? filter[0] : filter;
@@ -46,9 +57,11 @@ function getPostsWhere(filter: PostsFilter, userId: string): Prisma.PostWhereInp
     return { authorId: userId, published: false };
   }
 
-  return {
-    OR: [{ authorId: userId }, { published: true }],
-  };
+  if (filter === "shared") {
+    return getSharedPostsWhere(userId);
+  }
+
+  return getAccessiblePostsWhere(userId);
 }
 
 export default async function PostsPage({ searchParams }: PostsPageProps) {
@@ -57,6 +70,8 @@ export default async function PostsPage({ searchParams }: PostsPageProps) {
   if (!session?.user?.id) {
     redirect("/");
   }
+
+  const userId = session.user.id;
 
   async function deletePost(formData: FormData) {
     "use server";
@@ -186,41 +201,46 @@ export default async function PostsPage({ searchParams }: PostsPageProps) {
 
   try {
     posts = await prisma.post.findMany({
-      where: getPostsWhere(selectedFilter, session.user.id),
-      select: memoListPostSelect,
+      where: getPostsWhere(selectedFilter, userId),
+      select: getMemoListPostSelect(userId),
       orderBy: { updatedAt: "desc" },
     });
     accessiblePostsCount =
       selectedFilter === "all"
         ? posts.length
         : await prisma.post.count({
-            where: getPostsWhere("all", session.user.id),
+            where: getPostsWhere("all", userId),
           });
   } catch (error) {
     logServerError(error, {
       action: "loadPostsPage",
-      userId: session.user.id,
+      userId,
       details: { filter: selectedFilter },
     });
     throw new Error("メモの取得に失敗しました。");
   }
 
-  const memoPosts: MemoCardPost[] = posts.map((post) => ({
-    id: post.id,
-    title: post.title,
-    content: post.content,
-    published: post.published,
-    authorId: post.authorId,
-    createdAt: post.createdAt.toISOString(),
-    updatedAt: post.updatedAt.toISOString(),
-    tags: post.tags.map((tag) => ({ id: tag.id, name: tag.name })),
-  }));
+  const memoPosts: MemoCardPost[] = posts.map((post) => {
+    const accessRole = getPostAccessRole(post, userId);
+
+    return {
+      id: post.id,
+      title: post.title,
+      content: post.content,
+      published: post.published,
+      accessRole,
+      authorId: post.authorId,
+      createdAt: post.createdAt.toISOString(),
+      updatedAt: post.updatedAt.toISOString(),
+      tags: post.tags.map((tag) => ({ id: tag.id, name: tag.name })),
+    };
+  });
 
   return (
     <main className="posts-page">
       <PostsListClient
         accessiblePostsCount={accessiblePostsCount}
-        currentUserId={session.user.id}
+        currentUserId={userId}
         deletePostAction={deletePost}
         posts={memoPosts}
         selectedFilter={selectedFilter}

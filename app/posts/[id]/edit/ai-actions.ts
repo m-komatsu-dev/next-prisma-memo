@@ -2,14 +2,14 @@
 "use server";
 
 import { auth } from "@/auth";
-import { AiContentError, generateAiResult, type AiMode } from "@/lib/ai-content";
+import type { AiMode } from "@/lib/ai-modes";
+import { AiContentError, generateAiResult } from "@/lib/ai-content";
 import { logServerError } from "@/lib/server-errors";
 import {
   aiContentRequestSchema,
   aiGeneratedResultSchema,
   getFirstZodErrorMessage,
 } from "@/lib/zod";
-export type { AiMode };
 
 type AiSuccess = {
   success: true;

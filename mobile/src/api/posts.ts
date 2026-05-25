@@ -3,6 +3,10 @@ import type {
   MobilePost,
   MobilePostPayload,
   MobilePostResponse,
+  MobilePostShare,
+  MobilePostShareResponse,
+  MobilePostSharesResponse,
+  MobilePostShareRole,
   MobilePostsResponse,
 } from "../types/posts";
 
@@ -31,6 +35,13 @@ function isMobilePost(value: unknown): value is MobilePost {
   return (
     typeof value === "object" &&
     value !== null &&
+    "accessRole" in value &&
+    (value.accessRole === "owner" ||
+      value.accessRole === "editor" ||
+      value.accessRole === "viewer" ||
+      value.accessRole === "public") &&
+    "authorId" in value &&
+    typeof value.authorId === "string" &&
     "id" in value &&
     typeof value.id === "number" &&
     "title" in value &&
@@ -45,6 +56,23 @@ function isMobilePost(value: unknown): value is MobilePost {
     typeof value.updatedAt === "string" &&
     "tags" in value &&
     Array.isArray(value.tags)
+  );
+}
+
+function isMobilePostShare(value: unknown): value is MobilePostShare {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "email" in value &&
+    typeof value.email === "string" &&
+    "id" in value &&
+    typeof value.id === "number" &&
+    "name" in value &&
+    (typeof value.name === "string" || value.name === null) &&
+    "role" in value &&
+    (value.role === "viewer" || value.role === "editor") &&
+    "userId" in value &&
+    typeof value.userId === "string"
   );
 }
 
@@ -232,6 +260,134 @@ export async function deleteMobilePost(accessToken: string, postId: number) {
       response.status === 401
         ? "ログインが必要です。"
         : getErrorMessage(data, "メモの削除に失敗しました。"),
+      response.status,
+    );
+  }
+}
+
+export async function fetchMobilePostShares(accessToken: string, postId: number) {
+  const { data, response } = await requestMobileApi(
+    `/api/mobile/posts/${postId}/shares`,
+    accessToken,
+  );
+
+  if (!response.ok) {
+    throw new MobileApiRequestError(
+      response.status === 401
+        ? "ログインが必要です。"
+        : getErrorMessage(data, "共有設定の取得に失敗しました。"),
+      response.status,
+    );
+  }
+
+  if (
+    typeof data !== "object" ||
+    data === null ||
+    !("shares" in data) ||
+    !Array.isArray(data.shares) ||
+    !data.shares.every(isMobilePostShare)
+  ) {
+    throw new Error("共有設定のレスポンス形式が正しくありません。");
+  }
+
+  return (data as MobilePostSharesResponse).shares;
+}
+
+export async function createMobilePostShare(
+  accessToken: string,
+  postId: number,
+  payload: { email: string; role: MobilePostShareRole },
+) {
+  const { data, response } = await requestMobileApi(
+    `/api/mobile/posts/${postId}/shares`,
+    accessToken,
+    {
+      body: JSON.stringify(payload),
+      headers: {
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    throw new MobileApiRequestError(
+      response.status === 401
+        ? "ログインが必要です。"
+        : getErrorMessage(data, "共有設定の追加に失敗しました。"),
+      response.status,
+    );
+  }
+
+  if (
+    typeof data !== "object" ||
+    data === null ||
+    !("share" in data) ||
+    !isMobilePostShare(data.share)
+  ) {
+    throw new Error("共有設定追加のレスポンス形式が正しくありません。");
+  }
+
+  return (data as MobilePostShareResponse).share;
+}
+
+export async function updateMobilePostShare(
+  accessToken: string,
+  postId: number,
+  shareId: number,
+  role: MobilePostShareRole,
+) {
+  const { data, response } = await requestMobileApi(
+    `/api/mobile/posts/${postId}/shares/${shareId}`,
+    accessToken,
+    {
+      body: JSON.stringify({ role }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+      method: "PATCH",
+    },
+  );
+
+  if (!response.ok) {
+    throw new MobileApiRequestError(
+      response.status === 401
+        ? "ログインが必要です。"
+        : getErrorMessage(data, "共有権限の更新に失敗しました。"),
+      response.status,
+    );
+  }
+
+  if (
+    typeof data !== "object" ||
+    data === null ||
+    !("share" in data) ||
+    !isMobilePostShare(data.share)
+  ) {
+    throw new Error("共有権限更新のレスポンス形式が正しくありません。");
+  }
+
+  return (data as MobilePostShareResponse).share;
+}
+
+export async function deleteMobilePostShare(
+  accessToken: string,
+  postId: number,
+  shareId: number,
+) {
+  const { data, response } = await requestMobileApi(
+    `/api/mobile/posts/${postId}/shares/${shareId}`,
+    accessToken,
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (!response.ok) {
+    throw new MobileApiRequestError(
+      response.status === 401
+        ? "ログインが必要です。"
+        : getErrorMessage(data, "共有解除に失敗しました。"),
       response.status,
     );
   }

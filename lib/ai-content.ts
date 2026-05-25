@@ -1,8 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-
-export type AiMode = "summarize" | "title" | "tags" | "rewrite";
-export type MobileAiMode = "summarize" | "improve" | "ideas";
-export type AnyAiMode = AiMode | MobileAiMode;
+import type { AnyAiMode } from "@/lib/ai-modes";
 
 export class AiContentError extends Error {
   constructor(message: string) {

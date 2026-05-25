@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AI_MODES, MOBILE_AI_MODES } from "@/lib/ai-modes";
 
 const DANGEROUS_SCRIPT_PATTERN =
   /<\s*\/?\s*script\b|<\s*(iframe|object|embed|svg|link|meta)\b|javascript\s*:|data\s*:\s*text\/html|\bon[a-z]+\s*=|srcdoc\s*=/i;// 危険なスクリプト文字列のパターン。これには、scriptタグ、iframe/object/embed/svg/link/metaタグ、javascript:やdata:スキーム、イベントハンドラ属性、srcdoc属性などが含まれます。
@@ -55,6 +56,23 @@ export const postIdValueSchema = z.preprocess((value) => {
   const trimmed = value.trim();
   return /^\d+$/.test(trimmed) ? Number(trimmed) : value;
 }, postIdNumberSchema);
+
+const postShareIdNumberSchema = z
+  .number({
+    error: "共有設定IDの形式が正しくありません。",
+  })
+  .int("共有設定IDの形式が正しくありません。")
+  .positive("共有設定IDの形式が正しくありません。")
+  .max(MAX_POST_ID, "共有設定IDの形式が正しくありません。");
+
+export const postShareIdValueSchema = z.preprocess((value) => {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  return /^\d+$/.test(trimmed) ? Number(trimmed) : value;
+}, postShareIdNumberSchema);
 
 const postTitleSchema = safeString("タイトル", 120);
 const postContentSchema = safeString("本文", 20_000);
@@ -182,11 +200,48 @@ export const togglePublishedFormSchema = postIdFormSchema.extend({
   }),
 });
 
+export const postShareRoleSchema = z.enum(["viewer", "editor"], {
+  error: "共有権限の形式が正しくありません。",
+});
+
+export const addPostShareFormSchema = postIdFormSchema.extend({
+  email: z
+    .string({ error: "メールアドレスの形式が正しくありません。" })
+    .trim()
+    .toLowerCase()
+    .email("有効なメールアドレスを入力してください")
+    .max(254, "メールアドレスは254文字以内で入力してください。"),
+  role: postShareRoleSchema,
+});
+
+export const updatePostShareFormSchema = postIdFormSchema.extend({
+  shareId: postShareIdValueSchema,
+  role: postShareRoleSchema,
+});
+
+export const revokePostShareFormSchema = postIdFormSchema.extend({
+  shareId: postShareIdValueSchema,
+});
+
+export const mobileAddPostShareSchema = z.object({
+  email: z
+    .string({ error: "メールアドレスの形式が正しくありません。" })
+    .trim()
+    .toLowerCase()
+    .email("有効なメールアドレスを入力してください")
+    .max(254, "メールアドレスは254文字以内で入力してください。"),
+  role: postShareRoleSchema,
+});
+
+export const mobileUpdatePostShareSchema = z.object({
+  role: postShareRoleSchema,
+});
+
 export const aiContentRequestSchema = z.object({
   content: aiContentSchema
     .transform((value) => value.trim())
     .refine((value) => value.length > 0, "AIに渡す本文が空です。"),
-  mode: z.enum(["summarize", "title", "tags", "rewrite"], {
+  mode: z.enum(AI_MODES, {
     error: "AI処理の種類が正しくありません。",
   }),
 });
@@ -195,7 +250,7 @@ export const mobileAiGenerateRequestSchema = z.object({
   content: aiContentSchema
     .transform((value) => value.trim())
     .refine((value) => value.length > 0, "AIに渡す本文が空です。"),
-  mode: z.enum(["summarize", "title", "tags", "rewrite", "improve", "ideas"], {
+  mode: z.enum(MOBILE_AI_MODES, {
     error: "AI処理の種類が正しくありません。",
   }),
 });

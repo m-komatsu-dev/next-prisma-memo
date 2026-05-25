@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import PostForm from "@/components/post-form";
-import { postEditorSelect, type PostEditorPost } from "@/lib/post-selects";
+import { getPostEditorSelect, type PostEditorPost } from "@/lib/post-selects";
+import { getEditablePostWhere, getPostAccessRole } from "@/lib/post-permissions";
 import { prisma } from "@/lib/prisma";
 import { logServerError } from "@/lib/server-errors";
 import { postIdValueSchema } from "@/lib/zod";
@@ -25,8 +26,8 @@ export default async function EditPost({ params }: { params: Promise<{ id: strin
 
   try {
     post = await prisma.post.findFirst({
-      where: { id: validatedPostId.data, authorId: session.user.id },
-      select: postEditorSelect,
+      where: getEditablePostWhere(validatedPostId.data, session.user.id),
+      select: getPostEditorSelect(session.user.id),
     });
   } catch (error) {
     logServerError(error, {
@@ -39,9 +40,12 @@ export default async function EditPost({ params }: { params: Promise<{ id: strin
 
   if (!post) notFound();
 
+  const accessRole = getPostAccessRole(post, session.user.id);
+
   return (
     <div className="post-editor-page">
       <PostForm
+        canChangePublished={accessRole === "owner"}
         mode="edit"
         initialPost={{
           id: post.id,

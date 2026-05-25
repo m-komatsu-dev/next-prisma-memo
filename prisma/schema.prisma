@@ -18,6 +18,7 @@ model User {
   accounts      Account[]
   sessions      Session[]
   posts         Post[]
+  postShares    PostShare[]
 
   createdAt     DateTime  @default(now()) // ← 監査ログ
   updatedAt     DateTime  @updatedAt
@@ -35,10 +36,32 @@ model Post {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   tags      Tag[]  
+  shares    PostShare[]
 
   @@index([authorId]) // ← パフォーマンス + DoS耐性
   @@index([authorId, updatedAt])
   @@index([authorId, createdAt])
+}
+
+enum PostShareRole {
+  viewer
+  editor
+}
+
+model PostShare {
+  id        Int           @id @default(autoincrement())
+  postId    Int
+  post      Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      PostShareRole @default(viewer)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@unique([postId, userId])
+  @@index([postId])
+  @@index([userId])
+  @@index([userId, role])
 }
 
 model Tag {

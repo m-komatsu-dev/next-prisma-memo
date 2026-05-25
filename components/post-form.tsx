@@ -12,7 +12,13 @@ import { TodoListEditor } from "./todo-list";
 
 export type { PostFormPayload } from "./post-form/types";
 
-export default function PostForm({ mode, initialPost, autoSaveAction, saveAction }: PostFormProps) {
+export default function PostForm({
+  mode,
+  canChangePublished,
+  initialPost,
+  autoSaveAction,
+  saveAction,
+}: PostFormProps) {
   const {
     postId,
     title,
@@ -30,11 +36,12 @@ export default function PostForm({ mode, initialPost, autoSaveAction, saveAction
     handleAiTask,
     handleSubmit,
     handlePublishedChange,
-  } = usePostForm({ mode, initialPost, autoSaveAction, saveAction });
+  } = usePostForm({ mode, canChangePublished, initialPost, autoSaveAction, saveAction });
 
   return (
     <form action={handleSubmit} className="post-editor" noValidate>
       <PostEditorTopbar
+        canChangePublished={canChangePublished ?? true}
         mode={mode}
         published={published}
         handlePublishedChange={handlePublishedChange}
@@ -76,7 +83,11 @@ export default function PostForm({ mode, initialPost, autoSaveAction, saveAction
         />
       </section>
 
-      <PostEditorFooter isPending={isPending} published={published} />
+      <PostEditorFooter
+        canChangePublished={canChangePublished ?? true}
+        isPending={isPending}
+        published={published}
+      />
     </form>
   );
 }

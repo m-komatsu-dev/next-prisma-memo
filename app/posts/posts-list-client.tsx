@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 export type MemoCardPost = {
+  accessRole: "owner" | "editor" | "viewer" | "public";
   id: number;
   title: string;
   content: string;
@@ -17,7 +18,7 @@ export type MemoCardPost = {
 };
 
 type ServerAction = (formData: FormData) => Promise<void>;
-type StatusFilter = "all" | "published" | "private" | "mine";
+type StatusFilter = "all" | "published" | "private" | "mine" | "shared";
 type SortMode = "updated-desc" | "created-desc" | "title-asc";
 type ViewMode = "cards" | "list";
 
@@ -148,7 +149,9 @@ export default function PostsListClient({
           selectedFilter === "all" ||
           (selectedFilter === "published" && post.published) ||
           (selectedFilter === "private" && !post.published && post.authorId === currentUserId) ||
-          (selectedFilter === "mine" && post.authorId === currentUserId);
+          (selectedFilter === "mine" && post.authorId === currentUserId) ||
+          (selectedFilter === "shared" &&
+            (post.accessRole === "viewer" || post.accessRole === "editor"));
 
         return matchesQuery && matchesStatus;
       })
@@ -166,6 +169,7 @@ export default function PostsListClient({
   const publishedCount = posts.filter((post) => post.published).length;
   const privateCount = posts.filter((post) => !post.published && post.authorId === currentUserId).length;
   const myMemoCount = posts.filter((post) => post.authorId === currentUserId).length;
+  const sharedCount = posts.filter((post) => post.accessRole === "viewer" || post.accessRole === "editor").length;
 
   function confirmDelete(event: FormEvent<HTMLFormElement>) {
     if (!window.confirm("本当にこのメモを削除してもよろしいですか？")) {
@@ -186,7 +190,7 @@ export default function PostsListClient({
           <p className="posts-eyebrow">Memo workspace</p>
           <h1>{userName}さんのメモ一覧</h1>
           <p className="posts-summary">
-            {posts.length}件のメモ / 自分のメモ {myMemoCount}件 / 公開 {publishedCount}件 / 非公開 {privateCount}件
+            {posts.length}件のメモ / 自分 {myMemoCount}件 / 共有 {sharedCount}件 / 公開 {publishedCount}件 / 非公開 {privateCount}件
           </p>
         </div>
         <Link className="posts-primary-action" href="/posts/new">
@@ -221,6 +225,7 @@ export default function PostsListClient({
               <select value={selectedFilter} onChange={(event) => updateStatusFilter(event.target.value as StatusFilter)}>
                 <option value="all">すべて</option>
                 <option value="mine">自分のメモ</option>
+                <option value="shared">共有されたメモ</option>
                 <option value="published">公開のみ</option>
                 <option value="private">非公開のみ</option>
               </select>
@@ -271,7 +276,8 @@ export default function PostsListClient({
           ) : (
             <section className={viewMode === "cards" ? "memo-grid" : "memo-list"} aria-live="polite">
               {filteredPosts.map((post) => {
-                const isAuthor = post.authorId === currentUserId;
+                const isAuthor = post.accessRole === "owner";
+                const canEdit = post.accessRole === "owner" || post.accessRole === "editor";
 
                 return (
                   <article className="memo-card" key={post.id}>
@@ -280,7 +286,12 @@ export default function PostsListClient({
                         <span className={post.published ? "memo-badge memo-badge--public" : "memo-badge"}>
                           {post.published ? "公開" : "非公開"}
                         </span>
-                        {!isAuthor && <span className="memo-badge memo-badge--shared">共有</span>}
+                        {post.accessRole === "viewer" && (
+                          <span className="memo-badge memo-badge--shared">viewer</span>
+                        )}
+                        {post.accessRole === "editor" && (
+                          <span className="memo-badge memo-badge--shared">editor</span>
+                        )}
                       </div>
 
                       <h2>
@@ -317,9 +328,10 @@ export default function PostsListClient({
 
                     <div className="memo-card-actions">
                       <Link href={`/posts/${post.id}`}>詳細</Link>
+                      {canEdit && <Link href={`/posts/${post.id}/edit`}>編集</Link>}
                       {isAuthor && (
                         <>
-                          <Link href={`/posts/${post.id}/edit`}>編集</Link>
+                          <Link href={`/posts/${post.id}#share-settings`}>共有</Link>
                           <form
                             action={togglePublishedAction}
                             onSubmit={(event) => confirmPublishToggle(event, post.published)}

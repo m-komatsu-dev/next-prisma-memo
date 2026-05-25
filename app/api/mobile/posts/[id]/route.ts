@@ -1,7 +1,9 @@
 import { getMobileAuthUser } from "@/lib/mobile-auth";
+import { serializeMobilePost } from "@/lib/mobile-post-response";
 import { buildTagsConnectOrCreate } from "@/lib/post-tags";
 import { mobileCorsOptions, withMobileCors } from "@/lib/mobile-cors";
-import { postDetailSelect } from "@/lib/post-selects";
+import { getPostDetailSelect } from "@/lib/post-selects";
+import { getMobileReadablePostWhere } from "@/lib/post-permissions";
 import { prisma } from "@/lib/prisma";
 import { logServerError } from "@/lib/server-errors";
 import {
@@ -48,11 +50,8 @@ export async function GET(request: Request, { params }: MobilePostDetailRouteCon
 
   try {
     const post = await prisma.post.findFirst({
-      where: {
-        id: postId,
-        authorId: authUser.id,
-      },
-      select: postDetailSelect,
+      where: getMobileReadablePostWhere(postId, authUser.id),
+      select: getPostDetailSelect(authUser.id),
     });
 
     if (!post) {
@@ -68,19 +67,7 @@ export async function GET(request: Request, { params }: MobilePostDetailRouteCon
     return withMobileCors(
       request,
       NextResponse.json({
-        post: {
-          id: post.id,
-          title: post.title,
-          content: post.content,
-          // TodoはDBモデルではなく、既存どおりcontentからパースする設計です。
-          published: post.published,
-          createdAt: post.createdAt.toISOString(),
-          updatedAt: post.updatedAt.toISOString(),
-          tags: post.tags.map((tag) => ({
-            id: tag.id,
-            name: tag.name,
-          })),
-        },
+        post: serializeMobilePost(post, authUser.id),
       }),
     );
   } catch (error) {
@@ -166,15 +153,20 @@ export async function PATCH(
   const payload = validatedFields.data;
 
   try {
-    const existingPost = await prisma.post.findFirst({
-      where: {
-        id: postId,
-        authorId: authUser.id,
+    const accessiblePost = await prisma.post.findFirst({
+      where: getMobileReadablePostWhere(postId, authUser.id),
+      select: {
+        authorId: true,
+        id: true,
+        shares: {
+          where: { userId: authUser.id },
+          select: { role: true },
+          take: 1,
+        },
       },
-      select: { id: true },
     });
 
-    if (!existingPost) {
+    if (!accessiblePost) {
       return withMobileCors(
         request,
         NextResponse.json(
@@ -184,39 +176,44 @@ export async function PATCH(
       );
     }
 
-    const post = await prisma.post.update({
-      where: {
-        id: postId,
-        authorId: authUser.id,
-      },
-      data: {
-        title: payload.title.trim(),
-        content: payload.content.trim(),
-        published: payload.published,
-        tags: {
-          set: [],
-          connectOrCreate: buildTagsConnectOrCreate(payload.tags),
+    const canEdit =
+      accessiblePost.authorId === authUser.id ||
+      accessiblePost.shares[0]?.role === "editor";
+
+    if (!canEdit) {
+      return withMobileCors(
+        request,
+        NextResponse.json(
+          { error: "このメモを編集する権限がありません。" },
+          { status: 403 },
+        ),
+      );
+    }
+
+    const post = await prisma.$transaction(async (tx) => {
+      const updatedPost = await tx.post.update({
+        where: { id: accessiblePost.id },
+        data: {
+          title: payload.title.trim(),
+          content: payload.content.trim(),
+          ...(accessiblePost.authorId === authUser.id
+            ? { published: payload.published }
+            : {}),
+          tags: {
+            set: [],
+            connectOrCreate: buildTagsConnectOrCreate(payload.tags),
+          },
         },
-      },
-      select: postDetailSelect,
+        select: getPostDetailSelect(authUser.id),
+      });
+
+      return updatedPost;
     });
 
     return withMobileCors(
       request,
       NextResponse.json({
-        post: {
-          id: post.id,
-          title: post.title,
-          content: post.content,
-          // TodoはDBモデルではなく、既存どおりcontentからパースする設計です。
-          published: post.published,
-          createdAt: post.createdAt.toISOString(),
-          updatedAt: post.updatedAt.toISOString(),
-          tags: post.tags.map((tag) => ({
-            id: tag.id,
-            name: tag.name,
-          })),
-        },
+        post: serializeMobilePost(post, authUser.id),
       }),
     );
   } catch (error) {
@@ -265,14 +262,12 @@ export async function DELETE(
   const postId = validatedPostId.data;
 
   try {
-    const result = await prisma.post.deleteMany({
-      where: {
-        id: postId,
-        authorId: authUser.id,
-      },
+    const post = await prisma.post.findFirst({
+      where: getMobileReadablePostWhere(postId, authUser.id),
+      select: { authorId: true, id: true },
     });
 
-    if (result.count === 0) {
+    if (!post) {
       return withMobileCors(
         request,
         NextResponse.json(
@@ -281,6 +276,20 @@ export async function DELETE(
         ),
       );
     }
+
+    if (post.authorId !== authUser.id) {
+      return withMobileCors(
+        request,
+        NextResponse.json(
+          { error: "このメモを削除する権限がありません。" },
+          { status: 403 },
+        ),
+      );
+    }
+
+    await prisma.post.delete({
+      where: { id: post.id },
+    });
 
     return withMobileCors(request, NextResponse.json({ success: true }));
   } catch (error) {
