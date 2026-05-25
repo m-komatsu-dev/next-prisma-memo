@@ -12,6 +12,7 @@
 - Bearer Token認証
 - アクセストークンはExpo SecureStoreに保存
 - Gemini APIキーはモバイル側に置かず、Next.js API経由でAI生成を実行
+- アカウント削除は確認ダイアログで確定し、削除後はログアウト状態に戻る
 
 ## 起動方法
 
@@ -87,6 +88,7 @@ EXPO_PUBLIC_API_BASE_URL=https://todo-text-memo.vercel.app
 - メモ作成
 - メモ編集
 - メモ削除
+- アカウント削除
 - 作成/編集画面の自動保存
 - タイトル、本文、タグでの検索
 - 公開/非公開フィルター
@@ -99,6 +101,8 @@ EXPO_PUBLIC_API_BASE_URL=https://todo-text-memo.vercel.app
   - 要約追加
   - リライト追加
 
+アカウント削除は `DELETE` 文字列を入力する方式ではなく、確認ダイアログで実行します。削除するとユーザー、ログイン連携、セッション、作成したメモなどの関連データが削除され、保存済みアクセストークンも消去されます。
+
 ## 利用するAPI
 
 | Method | Path | 内容 |
@@ -110,6 +114,7 @@ EXPO_PUBLIC_API_BASE_URL=https://todo-text-memo.vercel.app
 | `PATCH` | `/api/mobile/posts/[id]` | メモ更新 |
 | `DELETE` | `/api/mobile/posts/[id]` | メモ削除 |
 | `POST` | `/api/mobile/ai/generate` | AI生成 |
+| `DELETE` | `/api/mobile/account` | アカウント削除 |
 
 API呼び出しでは次のヘッダーを付けます。
 
@@ -123,7 +128,7 @@ Authorization: Bearer <accessToken>
 - refresh token / ApiSession は未実装
 - アクセストークンは現在 `12h` の短期Bearer Token
 - ストア配布やEAS Buildは未対応
-- アカウント削除、共有機能、カレンダー、リマインダーは未実装
+- 共有機能、カレンダー、リマインダーは未実装
 
 ## 注意
 
