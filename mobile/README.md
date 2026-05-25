@@ -12,6 +12,8 @@
 - Bearer Token認証
 - アクセストークンはExpo SecureStoreに保存
 - Gemini APIキーはモバイル側に置かず、Next.js API経由でAI生成を実行
+- 自分のメモと共有されたメモを同じ一覧で扱う
+- 共有メモはowner/editor/viewerの権限に応じて閲覧・編集・削除・共有設定変更を制御
 - アカウント削除は確認ダイアログで確定し、削除後はログアウト状態に戻る
 
 ## 起動方法
@@ -91,10 +93,16 @@ EXPO_PUBLIC_API_BASE_URL=https://todo-text-memo.vercel.app
 - アカウント削除
 - 作成/編集画面の自動保存
 - タイトル、本文、タグでの検索
-- 公開/非公開フィルター
+- 自分/共有/公開/非公開フィルター
 - 更新日順、作成日順、タイトル順の並び替え
 - タグ表示
 - Todo形式メモの表示・編集
+- 共有されたメモの一覧・詳細表示
+- 共有メモのviewer/editorバッジ表示
+- ownerによる共有相手の追加、viewer/editorの権限変更、共有解除
+- viewerは閲覧のみ
+- editorは閲覧と編集が可能
+- ownerのみ削除と共有設定変更が可能
 - AI Assistant
   - タイトル生成
   - タグ生成
@@ -113,6 +121,10 @@ EXPO_PUBLIC_API_BASE_URL=https://todo-text-memo.vercel.app
 | `GET` | `/api/mobile/posts/[id]` | メモ詳細 |
 | `PATCH` | `/api/mobile/posts/[id]` | メモ更新 |
 | `DELETE` | `/api/mobile/posts/[id]` | メモ削除 |
+| `GET` | `/api/mobile/posts/[id]/shares` | 共有一覧 |
+| `POST` | `/api/mobile/posts/[id]/shares` | 共有相手を追加 |
+| `PATCH` | `/api/mobile/posts/[id]/shares/[shareId]` | 共有権限を変更 |
+| `DELETE` | `/api/mobile/posts/[id]/shares/[shareId]` | 共有解除 |
 | `POST` | `/api/mobile/ai/generate` | AI生成 |
 | `DELETE` | `/api/mobile/account` | アカウント削除 |
 
@@ -122,13 +134,26 @@ API呼び出しでは次のヘッダーを付けます。
 Authorization: Bearer <accessToken>
 ```
 
+## 共有メモの権限
+
+| Role | 閲覧 | 編集 | 削除 | 共有設定変更 |
+| --- | --- | --- | --- | --- |
+| owner | ○ | ○ | ○ | ○ |
+| editor | ○ | ○ | - | - |
+| viewer | ○ | - | - | - |
+
+`GET /api/mobile/posts` は自分のメモと自分に共有されたメモを返します。共有メモには `accessRole` が含まれ、モバイルUIはその値に応じて編集・削除・共有ボタンを出し分けます。
+
+権限チェックはUIだけではなくNext.js側のモバイルAPIでも行います。非共有ユーザーは非公開メモを閲覧できません。viewerは更新できず、editorは削除や共有設定変更ができません。共有解除後は共有先ユーザーの一覧・詳細から対象メモが見えなくなります。
+
 ## モバイル版の現在の制限
 
 - Google/GitHubログインは未対応
 - refresh token / ApiSession は未実装
 - アクセストークンは現在 `12h` の短期Bearer Token
 - ストア配布やEAS Buildは未対応
-- 共有機能、カレンダー、リマインダーは未実装
+- カレンダー、リマインダーは未実装
+- GitHub Actionsやテスト強化は今後の改善予定
 
 ## 注意
 
