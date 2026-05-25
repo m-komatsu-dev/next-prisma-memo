@@ -242,12 +242,49 @@ http://localhost:3000
 | --- | --- |
 | `npm run dev` | 開発サーバーを起動 |
 | `npm run lint` | ESLintを実行 |
+| `npm run test:e2e` | Playwright E2Eテストを実行 |
+| `npm run test:e2e:ui` | Playwright UIモードでE2Eテストを実行 |
+| `npm run test:e2e:headed` | ブラウザ表示ありでE2Eテストを実行 |
 | `npm run build` | 本番ビルド |
 | `npm run start` | 本番ビルドを起動 |
 | `npm run db:generate` | Prisma Client生成 |
 | `npm run db:push` | DBへschema反映 |
 | `npm run db:migrate` | migration作成 |
 | `npm run db:seed` | seed実行 |
+
+## E2Eテスト
+
+Web版の最小E2EテストはPlaywrightで実行します。GitHub Actionsにはまだ追加していません。
+
+テストは `webServer` で `npm run dev` を起動し、`http://localhost:3000` にアクセスします。既に開発サーバーが起動している場合は、そのサーバーを再利用します。
+
+E2EはPrismaを直接呼び出さず、Web画面から新規登録、ログイン、メモ作成、編集、削除、ログアウトを実行します。テストユーザーのメールアドレスは実行ごとに `e2e-${Date.now()}@example.com` 形式でユニークに生成します。
+
+### 1. E2E用の環境変数を作成
+
+```bash
+cp .env.test.example .env.test
+```
+
+`.env.test` の値を編集してください。`E2E_TEST_PASSWORD` と `.env.test` はリポジトリにコミットしないでください。
+
+```env
+E2E_TEST_PASSWORD="replace-with-a-local-test-password"
+```
+
+### 2. Playwrightブラウザを準備
+
+```bash
+npx playwright install chromium
+```
+
+### 3. E2Eを実行
+
+```bash
+npm run test:e2e
+```
+
+E2EではDBを直接削除しません。作成したメモはUIから削除します。アカウント削除はE2E対象外のため、テストユーザー自体はDBに残る可能性があります。
 
 ## API概要
 
