@@ -1,0 +1,162 @@
+import { getMobileAuthUser } from "@/lib/mobile-auth";
+import { buildTagsConnectOrCreate } from "@/lib/post-tags";
+import { mobileCorsOptions, withMobileCors } from "@/lib/mobile-cors";
+import { memoListPostSelect, postDetailSelect } from "@/lib/post-selects";
+import { prisma } from "@/lib/prisma";
+import { logServerError } from "@/lib/server-errors";
+import {
+  getFirstZodErrorMessage,
+  postSavePayloadSchema,
+} from "@/lib/zod";
+import { NextResponse } from "next/server";
+
+export function OPTIONS(request: Request) {
+  return mobileCorsOptions(request);
+}
+
+export async function GET(request: Request) {
+  const authUser = await getMobileAuthUser(request);
+
+  if (!authUser) {
+    return withMobileCors(
+      request,
+      NextResponse.json({ error: "ログインが必要です。" }, { status: 401 }),
+    );
+  }
+
+  try {
+    const posts = await prisma.post.findMany({
+      where: { authorId: authUser.id },
+      select: memoListPostSelect,
+      orderBy: { updatedAt: "desc" },
+    });
+
+    return withMobileCors(
+      request,
+      NextResponse.json({
+        posts: posts.map((post) => ({
+          id: post.id,
+          title: post.title,
+          content: post.content,
+          // TodoはDBモデルではなく、既存どおりcontentからパースする設計です。
+          published: post.published,
+          createdAt: post.createdAt.toISOString(),
+          updatedAt: post.updatedAt.toISOString(),
+          tags: post.tags.map((tag) => ({
+            id: tag.id,
+            name: tag.name,
+          })),
+        })),
+      }),
+    );
+  } catch (error) {
+    logServerError(error, {
+      action: "mobileListPosts",
+      userId: authUser.id,
+    });
+
+    return withMobileCors(
+      request,
+      NextResponse.json(
+        { error: "メモの取得に失敗しました。" },
+        { status: 500 },
+      ),
+    );
+  }
+}
+
+export async function POST(request: Request) {
+  const authUser = await getMobileAuthUser(request);
+
+  if (!authUser) {
+    return withMobileCors(
+      request,
+      NextResponse.json({ error: "ログインが必要です。" }, { status: 401 }),
+    );
+  }
+
+  let body: unknown;
+
+  try {
+    body = await request.json();
+  } catch {
+    return withMobileCors(
+      request,
+      NextResponse.json(
+        { error: "リクエスト本文の形式が正しくありません。" },
+        { status: 400 },
+      ),
+    );
+  }
+
+  const rawPayload =
+    body && typeof body === "object" && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : {};
+  const validatedFields = postSavePayloadSchema.safeParse({
+    id: null,
+    title: rawPayload.title,
+    content: rawPayload.content,
+    published: rawPayload.published,
+    tags: rawPayload.tags ?? "",
+  });
+
+  if (!validatedFields.success) {
+    return withMobileCors(
+      request,
+      NextResponse.json(
+        { error: getFirstZodErrorMessage(validatedFields.error) },
+        { status: 400 },
+      ),
+    );
+  }
+
+  const payload = validatedFields.data;
+
+  try {
+    const post = await prisma.post.create({
+      data: {
+        title: payload.title.trim(),
+        content: payload.content.trim(),
+        published: payload.published,
+        authorId: authUser.id,
+        tags: {
+          connectOrCreate: buildTagsConnectOrCreate(payload.tags),
+        },
+      },
+      select: postDetailSelect,
+    });
+
+    return withMobileCors(
+      request,
+      NextResponse.json({
+        post: {
+          id: post.id,
+          title: post.title,
+          content: post.content,
+          // TodoはDBモデルではなく、既存どおりcontentからパースする設計です。
+          published: post.published,
+          createdAt: post.createdAt.toISOString(),
+          updatedAt: post.updatedAt.toISOString(),
+          tags: post.tags.map((tag) => ({
+            id: tag.id,
+            name: tag.name,
+          })),
+        },
+      }),
+    );
+  } catch (error) {
+    logServerError(error, {
+      action: "mobileCreatePost",
+      userId: authUser.id,
+    });
+
+    return withMobileCors(
+      request,
+      NextResponse.json(
+        { error: "メモの作成に失敗しました。" },
+        { status: 500 },
+      ),
+    );
+  }
+}

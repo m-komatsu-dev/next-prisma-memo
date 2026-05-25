@@ -1,112 +1,280 @@
-# next-prisma-memo
+# My Memo App
 
-Next.js と Prisma ORM、PostgreSQL を使用したモダンなフルスタック・メモ管理アプリケーションです。  
-ユーザー認証、メモの作成・編集・削除、タグ管理、公開設定、検索・絞り込みなど、実用的なメモ管理体験をフルスタックで実装しています。
-
-## Demo
+Next.js App Router + TypeScript のWebアプリと、Expo + React Native のモバイルアプリで構成したフルスタックのメモアプリです。バックエンドはNext.js Route Handlers / Server Actions、Prisma、PostgreSQLを使い、Web版とモバイル版が同じメモデータを扱います。
 
 - App URL: https://todo-text-memo.vercel.app
 - GitHub: https://github.com/m-komatsu-dev/next-prisma-memo
 
-## Tech Stack
+## アプリ概要
 
-| Category | Technology |
+メモの作成、整理、検索、AIによる補助をWebとモバイルの両方から利用できるアプリです。
+
+Web版はブラウザ向けのNext.jsアプリとして動作します。モバイル版は `mobile/` 配下のExpoアプリで、Next.js側の `/api/mobile/*` APIを呼び出します。AI機能はサーバー側でGemini APIを呼び出す設計で、モバイルアプリからGemini APIを直接呼び出しません。
+
+## Web版とモバイル版の機能
+
+### 共通機能
+
+- メモ一覧、詳細、作成、編集、削除
+- タイトル、本文、タグ、公開/非公開ステータスの管理
+- チェックボックス/Todo形式のメモ
+- メモ一覧の検索、表示フィルター、並び替え
+- 作成/編集画面の自動保存
+- AIタイトル生成
+- AIタグ生成
+- AI要約追加
+- AIリライト追加
+
+### Web版
+
+- Auth.js / NextAuthによる認証
+- メールアドレス + パスワードログイン
+- Googleログイン
+- GitHubログイン
+- すべて/自分のメモ/公開のみ/非公開のみの表示フィルター
+- カード表示/リスト表示の切り替え
+- メモ詳細でのAI要約表示
+
+### モバイル版
+
+- Expo + React Nativeアプリ
+- メールアドレス + パスワードログイン
+- Bearer Token認証
+- Expo SecureStoreへのアクセストークン保存
+- Todo形式メモの表示・編集
+- AI Assistantからタイトル生成、タグ生成、要約追加、リライト追加
+
+モバイル版のGoogle/GitHubログインは未対応です。
+
+## 技術スタック
+
+| 領域 | 技術 |
 | --- | --- |
-| **Frontend** | Next.js (App Router), React, TypeScript |
-| **Styling** | Tailwind CSS, CSS |
-| **Backend** | Next.js Server Actions, Route Handlers |
-| **ORM** | Prisma ORM |
-| **Database** | PostgreSQL (Prisma Postgres) |
-| **Authentication** | NextAuth.js, Prisma Adapter (Credentials / Google / GitHub) |
-| **Validation** | Zod |
-| **Package Manager** | npm |
-| **Deployment** | Vercel |
+| Web | Next.js App Router, React, TypeScript |
+| Mobile | Expo, React Native, TypeScript |
+| Backend | Next.js Route Handlers, Server Actions |
+| Database | PostgreSQL |
+| ORM | Prisma ORM, Prisma PostgreSQL adapter |
+| Auth | Auth.js / NextAuth, JWT, Bearer Token |
+| Validation | Zod |
+| AI | Google Gemini API |
+| Mobile Storage | Expo SecureStore |
+| Deploy | Vercel |
+| Package Manager | npm |
 
-## Features
+## アーキテクチャ概要
 
-### Implemented
+```text
+Web Browser
+  -> Next.js App Router
+  -> Auth.js / NextAuth
+  -> Server Actions / Route Handlers
+  -> Prisma
+  -> PostgreSQL
 
-- メモの CRUD 機能
-- ユーザーごとのメモ管理
-- メールアドレス・パスワードによる認証
-- Google / GitHub OAuth ログイン
-- メモの公開・非公開切り替え
-- 公開メモの閲覧
-- タグの登録・表示
-- タイトル、本文、タグを対象にしたメモ検索
-- 公開状態によるフィルタリング
-- 更新日・作成日・タイトル順の並び替え
-- チェックリスト形式に対応したメモエディタ
-- 入力内容の自動下書き保存
-- AI によるタイトル生成、タグ生成、要約、リライト補助
-- レスポンシブ対応の UI
-- Zod によるフォーム入力バリデーション
-- Prisma のリレーション・インデックスを利用したデータ設計
+Expo Mobile App
+  -> /api/mobile/auth/login
+  -> Authorization: Bearer <accessToken>
+  -> /api/mobile/posts
+  -> /api/mobile/posts/[id]
+  -> /api/mobile/ai/generate
+  -> Prisma / Gemini API
+```
 
-## Getting Started
+Web版はNext.js内のページ、Server Actions、Route Handlersで画面と更新処理を構成しています。モバイル版はNext.jsアプリをAPIサーバーとして利用し、JSON API経由でメモを操作します。
 
-### 1. Clone Repository
+Todoは専用テーブルを持たず、本文の形式からチェックボックス/Todoとして扱う設計です。
+
+## 認証方式の違い
+
+### Web版
+
+- Auth.js / NextAuthを利用
+- Credentialsログイン
+- Google OAuth
+- GitHub OAuth
+- セッションはNextAuthのJWT strategy
+
+### モバイル版
+
+- `/api/mobile/auth/login` にメールアドレス + パスワードを送信
+- 成功時にモバイル用アクセストークンを発行
+- 以降のAPIは `Authorization: Bearer <accessToken>` を付与
+- トークンはExpo SecureStoreに保存
+- アクセストークンの有効期限は現在 `12h`
+
+refresh token / ApiSession は未実装です。現在は短期のBearer Tokenのみを使います。
+
+## セットアップ方法
+
+### 1. 前提
+
+- Node.js LTS
+- npm
+- PostgreSQLデータベース
+- Google/GitHubログインを使う場合は各OAuthアプリ
+- AI機能を使う場合はGemini APIキー
+
+### 2. リポジトリを取得
 
 ```bash
 git clone https://github.com/m-komatsu-dev/next-prisma-memo.git
 cd next-prisma-memo
 ```
 
-### 2. Install Dependencies
+### 3. 依存関係をインストール
 
 ```bash
 npm install
 ```
 
-### 3. Create Environment File
+モバイル版も使う場合:
 
-プロジェクトルートに `.env` を作成し、データベース接続文字列を設定します。
+```bash
+cd mobile
+npm install
+cd ..
+```
+
+### 4. 環境変数を設定
+
+プロジェクトルートに `.env` を作成します。
 
 ```env
-DATABASE_URL="your-connection-string"
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
 AUTH_SECRET="your-auth-secret"
 
-# Optional: OAuth login
-AUTH_GOOGLE_ID="your-google-client-id"
-AUTH_GOOGLE_SECRET="your-google-client-secret"
-AUTH_GITHUB_ID="your-github-client-id"
-AUTH_GITHUB_SECRET="your-github-client-secret"
+# Optional: mobile bearer token secret
+MOBILE_AUTH_SECRET="your-mobile-auth-secret"
+
+# Optional: database pool
+DATABASE_POOL_MAX="5"
+
+# Optional: Google OAuth for Web
+GOOGLE_CLIENT_ID="your-google-client-id"
+GOOGLE_CLIENT_SECRET="your-google-client-secret"
+
+# Optional: GitHub OAuth for Web
+GITHUB_ID="your-github-client-id"
+GITHUB_SECRET="your-github-client-secret"
+
+# Optional: Vercel/production auth host handling
+AUTH_TRUST_HOST="true"
 
 # Optional: AI assistant
 GEMINI_API_KEY="your-gemini-api-key"
+GEMINI_MODEL="gemini-2.5-flash"
 ```
 
-### 4. Setup Database
+`MOBILE_AUTH_SECRET` が未設定の場合は、`AUTH_SECRET` をモバイル用Bearer Tokenの署名にも使います。
 
-Prisma schema をもとにデータベースを同期します。
+モバイルアプリをローカルAPIへ接続する場合は、`mobile/.env` も作成します。詳しくは [mobile/README.md](mobile/README.md) を参照してください。
+
+```env
+EXPO_PUBLIC_API_BASE_URL=http://localhost:3000
+```
+
+### 5. データベースを同期
+
+Prisma Clientを生成します。
 
 ```bash
-npx prisma db push
+npm run db:generate
 ```
 
-マイグレーション履歴を作成しながら開発する場合は、以下を使用します。
+開発環境でschemaをDBへ反映します。
 
 ```bash
-npx prisma migrate dev
+npm run db:push
 ```
 
-### 5. Start Development Server
+マイグレーションを作成しながら開発する場合:
+
+```bash
+npm run db:migrate
+```
+
+### 6. Web版を起動
 
 ```bash
 npm run dev
 ```
 
-ブラウザで以下にアクセスします。
+ブラウザで開きます。
+
+```text
 http://localhost:3000
+```
 
-## Available Scripts
+主なコマンド:
 
-| Command | Description |
+| Command | 内容 |
 | --- | --- |
 | `npm run dev` | 開発サーバーを起動 |
-| `npm run build` | 本番用ビルドを作成 |
+| `npm run lint` | ESLintを実行 |
+| `npm run build` | 本番ビルド |
 | `npm run start` | 本番ビルドを起動 |
+| `npm run db:generate` | Prisma Client生成 |
+| `npm run db:push` | DBへschema反映 |
+| `npm run db:migrate` | migration作成 |
+| `npm run db:seed` | seed実行 |
 
-## About
+## API概要
 
-このアプリケーションは、Next.js App Router と Prisma ORM を中心に、認証・認可・データベース設計・サーバーアクション・バリデーション・レスポンシブ UI を含むフルスタック開発の実践として制作しています。
+モバイル版は次のAPIを利用します。
+
+| Method | Path | 内容 |
+| --- | --- | --- |
+| `POST` | `/api/mobile/auth/login` | メールアドレス + パスワードでログイン |
+| `GET` | `/api/mobile/posts` | 自分のメモ一覧を取得 |
+| `POST` | `/api/mobile/posts` | メモ作成 |
+| `GET` | `/api/mobile/posts/[id]` | メモ詳細を取得 |
+| `PATCH` | `/api/mobile/posts/[id]` | メモ更新 |
+| `DELETE` | `/api/mobile/posts/[id]` | メモ削除 |
+| `POST` | `/api/mobile/ai/generate` | AI生成 |
+
+`/api/mobile/ai/generate` は `content` と `mode` を受け取ります。対応modeは `title`、`tags`、`summarize`、`rewrite`、`improve`、`ideas` です。
+
+## デプロイ情報
+
+Web/APIはVercelへデプロイ済みです。
+
+Vercelで動かす場合は、次の設定を行います。
+
+1. VercelにGitHubリポジトリを接続
+2. Root Directoryをプロジェクトルートに設定
+3. Build Commandを `npm run build` に設定
+4. Environment Variablesにルート `.env` と同等の値を設定
+5. PostgreSQLの接続文字列を `DATABASE_URL` に設定
+6. Google/GitHub OAuthを使う場合は、本番URLのcallback URLを各OAuthアプリに設定
+
+モバイル版を本番APIへ接続する場合は、`mobile/.env` の `EXPO_PUBLIC_API_BASE_URL` をVercelのURLに変更します。
+
+```env
+EXPO_PUBLIC_API_BASE_URL=https://todo-text-memo.vercel.app
+```
+
+モバイル版は現在Expo Goでの確認を前提にしています。ストア配布やEAS Buildは今後の改善予定です。
+
+## ポートフォリオとしての見どころ
+
+- Next.js App Routerを使ったフルスタック構成
+- Web UIとReact Native UIを同じサービス体験に近づけた設計
+- WebはNextAuth、mobileはBearer Tokenという用途別の認証設計
+- `/api/mobile/*` によるモバイル専用API設計
+- Prisma + PostgreSQLによるリレーション管理
+- Zodによるサーバー側入力検証
+- Todo形式メモを本文から扱う設計
+- Web/mobile両方の自動保存
+- Gemini APIをサーバー側だけで扱うAI機能
+- Vercelに載せやすいRoute Handler構成
+
+## 今後の改善予定
+
+- アカウント削除
+- メモ共有機能
+- カレンダー表示
+- リマインダー
+- モバイル版Google/GitHubログイン
+- refresh token / ApiSessionによるモバイル認証の強化
+- EAS Buildによる配布フロー
