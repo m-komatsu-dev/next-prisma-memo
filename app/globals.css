@@ -892,11 +892,13 @@ textarea {
 
 .account-delete {
   display: grid;
-  gap: 22px;
-  border: 1px solid rgba(220, 38, 38, 0.18);
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: rgba(254, 242, 242, 0.74);
-  padding: 24px;
+  background: rgba(255, 255, 255, 0.74);
+  padding: 20px;
 }
 
 .account-delete__kicker {
@@ -909,39 +911,25 @@ textarea {
 
 .account-delete h2 {
   margin-top: 6px;
-  font-size: 1.55rem;
+  font-size: 1.2rem;
   line-height: 1.25;
 }
 
 .account-delete__form {
-  display: grid;
-  gap: 14px;
+  margin: 0;
 }
 
-.account-delete__form label {
-  display: grid;
-  gap: 8px;
-  color: var(--text-muted);
-  font-size: 0.88rem;
-  font-weight: 800;
-}
-
-.account-delete__form input {
-  width: 100%;
-  min-height: 48px;
+.account-delete__open {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
   border: 1px solid rgba(220, 38, 38, 0.24);
   border-radius: var(--radius);
-  background: #ffffff;
-  color: var(--text);
-  font: inherit;
-  font-weight: 800;
+  background: rgba(254, 242, 242, 0.85);
+  color: var(--danger);
+  font-weight: 900;
   padding: 0 14px;
-}
-
-.account-delete__form input:focus {
-  border-color: var(--danger);
-  box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.1);
-  outline: none;
 }
 
 .account-delete__submit {
@@ -957,6 +945,11 @@ textarea {
   padding: 0 18px;
 }
 
+.account-delete__open:hover,
+.account-delete__submit:hover {
+  transform: translateY(-1px);
+}
+
 .account-delete__submit:disabled {
   cursor: not-allowed;
   opacity: 0.58;
@@ -964,6 +957,74 @@ textarea {
 
 .account-back-link {
   justify-self: start;
+}
+
+.account-delete-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 23, 42, 0.46);
+  padding: 20px;
+}
+
+.account-delete-dialog {
+  width: min(100%, 460px);
+  border: 1px solid rgba(220, 38, 38, 0.18);
+  border-radius: var(--radius-lg);
+  background: var(--surface-strong);
+  padding: 24px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24);
+}
+
+.account-delete-dialog__header {
+  display: grid;
+  gap: 6px;
+}
+
+.account-delete-dialog h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 1.45rem;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.account-delete-dialog p {
+  margin: 14px 0 0;
+  color: var(--text-muted);
+  line-height: 1.75;
+}
+
+.account-delete-dialog__warning {
+  border: 1px solid rgba(220, 38, 38, 0.18);
+  border-radius: var(--radius);
+  background: rgba(254, 242, 242, 0.85);
+  color: var(--danger) !important;
+  font-weight: 800;
+  padding: 12px;
+}
+
+.account-delete-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.account-delete-dialog__cancel {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-strong);
+  color: var(--text-muted);
+  font-weight: 900;
+  padding: 0 18px;
 }
 
 .provider-icon {

@@ -36,7 +36,7 @@ import { Badge, Button, Card, TextField } from "./src/components/ui";
 import { colors, radius, spacing, typography } from "./src/theme";
 import type { MobileAiMode, MobilePost, MobilePostPayload } from "./src/types/posts";
 
-type ViewMode = "list" | "detail" | "create" | "edit";
+type ViewMode = "list" | "detail" | "create" | "edit" | "account";
 type AuthViewMode = "landing" | "login";
 type AutoSaveStatus = "unsaved" | "saving" | "saved" | "error";
 type StatusFilter = "all" | "mine" | "published" | "private";
@@ -1158,8 +1158,6 @@ export default function App() {
   const [autoSaveError, setAutoSaveError] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [accountDeletionOpen, setAccountDeletionOpen] = useState(false);
-  const [accountDeleteConfirmation, setAccountDeleteConfirmation] = useState("");
   const [accountDeleteLoading, setAccountDeleteLoading] = useState(false);
   const [accountDeleteError, setAccountDeleteError] = useState("");
 
@@ -1179,8 +1177,6 @@ export default function App() {
     setDetailError("");
     setFormError("");
     setAutoSaveError("");
-    setAccountDeletionOpen(false);
-    setAccountDeleteConfirmation("");
     setAccountDeleteError("");
     setPassword("");
     setLoginError(nextLoginError);
@@ -1317,20 +1313,37 @@ export default function App() {
     await clearSession();
   }, [clearSession]);
 
-  const handleDeleteAccount = useCallback(() => {
+  const performDeleteAccount = useCallback(async () => {
     if (!accessToken) {
       setLoginError("ログインが必要です。");
       return;
     }
 
-    if (accountDeleteConfirmation !== "DELETE") {
-      setAccountDeleteError("確認テキストに DELETE と入力してください。");
-      return;
-    }
+    setAccountDeleteLoading(true);
+    setAccountDeleteError("");
 
+    try {
+      await deleteMobileAccount(accessToken);
+      await clearSession();
+    } catch (caughtError) {
+      if (await handleAuthError(caughtError)) {
+        return;
+      }
+
+      setAccountDeleteError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "アカウント削除に失敗しました。",
+      );
+    } finally {
+      setAccountDeleteLoading(false);
+    }
+  }, [accessToken, clearSession, handleAuthError]);
+
+  const confirmDeleteAccount = useCallback(() => {
     Alert.alert(
       "アカウントを削除しますか？",
-      "アカウント、ログイン連携、セッション、作成したメモを削除します。この操作は取り消せません。",
+      "この操作は取り消せません。アカウント、ログイン連携、セッション、作成したメモが削除されます。",
       [
         {
           style: "cancel",
@@ -1338,39 +1351,30 @@ export default function App() {
         },
         {
           onPress: () => {
-            void (async () => {
-              setAccountDeleteLoading(true);
-              setAccountDeleteError("");
-
-              try {
-                await deleteMobileAccount(accessToken, accountDeleteConfirmation);
-                await clearSession();
-              } catch (caughtError) {
-                if (await handleAuthError(caughtError)) {
-                  return;
-                }
-
-                setAccountDeleteError(
-                  caughtError instanceof Error
-                    ? caughtError.message
-                    : "アカウント削除に失敗しました。",
-                );
-              } finally {
-                setAccountDeleteLoading(false);
-              }
-            })();
+            Alert.alert(
+              "本当に削除しますか？",
+              "削除後はログアウトされ、ログイン前の画面に戻ります。",
+              [
+                {
+                  style: "cancel",
+                  text: "戻る",
+                },
+                {
+                  onPress: () => {
+                    void performDeleteAccount();
+                  },
+                  style: "destructive",
+                  text: "本当に削除する",
+                },
+              ],
+            );
           },
           style: "destructive",
-          text: "削除する",
+          text: "アカウントを削除",
         },
       ],
     );
-  }, [
-    accessToken,
-    accountDeleteConfirmation,
-    clearSession,
-    handleAuthError,
-  ]);
+  }, [performDeleteAccount]);
 
   const openRegisterPage = useCallback(() => {
     if (!API_BASE_URL) {
@@ -1855,6 +1859,80 @@ export default function App() {
     );
   }
 
+  if (viewMode === "account") {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" />
+        <ScrollView contentContainerStyle={styles.accountSettingsContent}>
+          <View style={styles.accountSettingsTopBar}>
+            <Button
+              onPress={() => {
+                setAccountDeleteError("");
+                setViewMode("list");
+              }}
+              style={styles.toolButton}
+              variant="secondary"
+            >
+              戻る
+            </Button>
+          </View>
+
+          <View style={styles.accountSettingsHeader}>
+            <Text style={styles.kicker}>Account</Text>
+            <Text style={styles.title}>アカウント設定</Text>
+            <Text style={styles.accountSettingsLead}>
+              ログアウトやアカウント削除など、メモ操作とは別の設定を管理します。
+            </Text>
+          </View>
+
+          <Card style={[styles.accountSettingsCard, styles.flatSurface]}>
+            <Text style={styles.accountSettingsSectionTitle}>セッション</Text>
+            <Text style={styles.accountSettingsText}>
+              この端末に保存されたログイン情報を削除してログアウトします。
+            </Text>
+            <Button
+              onPress={handleLogout}
+              style={styles.fullButton}
+              variant="secondary"
+            >
+              ログアウト
+            </Button>
+          </Card>
+
+          <Card
+            style={[
+              styles.accountSettingsCard,
+              styles.accountSettingsDangerCard,
+              styles.flatSurface,
+            ]}
+          >
+            <Text style={styles.accountDeletionKicker}>Danger zone</Text>
+            <Text style={styles.accountSettingsSectionTitle}>
+              アカウント削除
+            </Text>
+            <Text style={styles.accountSettingsText}>
+              アカウント、ログイン連携、セッション、作成したメモを削除します。
+            </Text>
+            {accountDeleteError ? (
+              <Text style={styles.accountDeletionError}>
+                {accountDeleteError}
+              </Text>
+            ) : null}
+            <Button
+              disabled={accountDeleteLoading}
+              loading={accountDeleteLoading}
+              onPress={confirmDeleteAccount}
+              style={styles.fullButton}
+              variant="danger"
+            >
+              アカウントを削除
+            </Button>
+          </Card>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   if (viewMode === "edit" && selectedPost) {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -2027,70 +2105,15 @@ export default function App() {
             更新
           </Button>
           <Button
-            onPress={handleLogout}
+            onPress={() => {
+              setAccountDeleteError("");
+              setViewMode("account");
+            }}
             style={styles.toolbarButton}
             variant="secondary"
           >
-            ログアウト
+            アカウント
           </Button>
-        </Card>
-
-        <Card style={[styles.accountDeletionCard, styles.flatSurface]}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              setAccountDeletionOpen((current) => !current);
-              setAccountDeleteError("");
-            }}
-            style={({ pressed }) => [
-              styles.accountDeletionHeader,
-              pressed ? styles.buttonPressed : undefined,
-            ]}
-          >
-            <View style={styles.accountDeletionHeaderText}>
-              <Text style={styles.accountDeletionKicker}>Account</Text>
-              <Text style={styles.accountDeletionTitle}>アカウント削除</Text>
-            </View>
-            <Text style={styles.accountDeletionToggle}>
-              {accountDeletionOpen ? "閉じる" : "開く"}
-            </Text>
-          </Pressable>
-
-          {accountDeletionOpen ? (
-            <View style={styles.accountDeletionBody}>
-              <Text style={styles.accountDeletionLead}>
-                アカウント、ログイン連携、セッション、作成したメモを削除します。
-              </Text>
-              <TextInput
-                autoCapitalize="characters"
-                autoCorrect={false}
-                onChangeText={(value) => {
-                  setAccountDeleteConfirmation(value);
-                  if (accountDeleteError) {
-                    setAccountDeleteError("");
-                  }
-                }}
-                placeholder="DELETE"
-                placeholderTextColor="#a0a8b5"
-                style={styles.accountDeletionInput}
-                value={accountDeleteConfirmation}
-              />
-              {accountDeleteError ? (
-                <Text style={styles.accountDeletionError}>
-                  {accountDeleteError}
-                </Text>
-              ) : null}
-              <Button
-                disabled={accountDeleteConfirmation !== "DELETE"}
-                loading={accountDeleteLoading}
-                onPress={handleDeleteAccount}
-                style={styles.fullButton}
-                variant="danger"
-              >
-                アカウントを完全に削除
-              </Button>
-            </View>
-          ) : null}
         </Card>
 
         <Card style={[styles.postsControls, styles.flatSurface]}>
@@ -2575,24 +2598,47 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     minWidth: 96,
   },
-  accountDeletionCard: {
-    backgroundColor: colors.dangerSoft,
-    borderColor: "rgba(220, 38, 38, 0.16)",
-    borderRadius: radius.md,
-    marginBottom: 10,
-    padding: 0,
+  accountSettingsContent: {
+    paddingBottom: 42,
+    paddingHorizontal: spacing.lg,
+    paddingTop: 22,
   },
-  accountDeletionHeader: {
+  accountSettingsTopBar: {
     alignItems: "center",
     flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 58,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    justifyContent: "flex-start",
+    marginBottom: 20,
   },
-  accountDeletionHeaderText: {
-    flex: 1,
-    paddingRight: 12,
+  accountSettingsHeader: {
+    marginBottom: 18,
+  },
+  accountSettingsLead: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 22,
+    marginTop: 10,
+  },
+  accountSettingsCard: {
+    backgroundColor: colors.surface,
+    gap: 12,
+    marginBottom: 12,
+    padding: 18,
+  },
+  accountSettingsDangerCard: {
+    backgroundColor: colors.dangerSoft,
+    borderColor: "rgba(220, 38, 38, 0.16)",
+  },
+  accountSettingsSectionTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  accountSettingsText: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 22,
   },
   accountDeletionKicker: {
     color: colors.danger,
@@ -2600,40 +2646,6 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 0.8,
     textTransform: "uppercase",
-  },
-  accountDeletionTitle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "900",
-    marginTop: 3,
-  },
-  accountDeletionToggle: {
-    color: colors.danger,
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  accountDeletionBody: {
-    borderTopColor: "rgba(220, 38, 38, 0.14)",
-    borderTopWidth: 1,
-    gap: 10,
-    padding: 14,
-  },
-  accountDeletionLead: {
-    color: colors.textMuted,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 20,
-  },
-  accountDeletionInput: {
-    backgroundColor: colors.surfaceStrong,
-    borderColor: "rgba(220, 38, 38, 0.22)",
-    borderRadius: radius.md,
-    borderWidth: 1,
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: "800",
-    minHeight: 44,
-    paddingHorizontal: 12,
   },
   accountDeletionError: {
     color: colors.danger,

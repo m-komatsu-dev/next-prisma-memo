@@ -1,6 +1,5 @@
 import { getMobileAuthUser } from "@/lib/mobile-auth";
 import { mobileCorsOptions, withMobileCors } from "@/lib/mobile-cors";
-import { ACCOUNT_DELETE_CONFIRMATION } from "@/lib/account-delete-confirmation";
 import { deleteAccountData } from "@/lib/account-deletion";
 import { logServerError } from "@/lib/server-errors";
 import { NextResponse } from "next/server";
@@ -33,16 +32,16 @@ export async function DELETE(request: Request) {
     );
   }
 
-  const confirmation =
-    body && typeof body === "object" && "confirmation" in body
-      ? (body as { confirmation?: unknown }).confirmation
+  const confirmed =
+    body && typeof body === "object" && "confirmed" in body
+      ? (body as { confirmed?: unknown }).confirmed
       : null;
 
-  if (confirmation !== ACCOUNT_DELETE_CONFIRMATION) {
+  if (confirmed !== true) {
     return withMobileCors(
       request,
       NextResponse.json(
-        { error: "確認テキストに DELETE と入力してください。" },
+        { error: "確認ダイアログで削除を確定してください。" },
         { status: 400 },
       ),
     );

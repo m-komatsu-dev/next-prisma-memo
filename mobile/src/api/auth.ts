@@ -59,16 +59,13 @@ export async function loginWithEmailPassword(email: string, password: string) {
   return data;
 }
 
-export async function deleteMobileAccount(
-  accessToken: string,
-  confirmation: string,
-) {
+export async function deleteMobileAccount(accessToken: string) {
   if (!API_BASE_URL) {
     throw new Error("EXPO_PUBLIC_API_BASE_URL が設定されていません。");
   }
 
   const response = await fetch(`${API_BASE_URL}/api/mobile/account`, {
-    body: JSON.stringify({ confirmation }),
+    body: JSON.stringify({ confirmed: true }),
     headers: {
       Accept: "application/json",
       Authorization: `Bearer ${accessToken}`,

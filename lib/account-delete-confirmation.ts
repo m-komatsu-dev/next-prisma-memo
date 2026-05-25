@@ -1,1 +1,0 @@
-export const ACCOUNT_DELETE_CONFIRMATION = "DELETE";

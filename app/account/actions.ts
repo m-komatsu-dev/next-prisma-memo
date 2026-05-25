@@ -1,7 +1,6 @@
 "use server";
 
 import { auth, signOut } from "@/auth";
-import { ACCOUNT_DELETE_CONFIRMATION } from "@/lib/account-delete-confirmation";
 import { deleteAccountData } from "@/lib/account-deletion";
 import { isRedirectError, logServerError } from "@/lib/server-errors";
 
@@ -19,10 +18,10 @@ export async function deleteAccountAction(
     return { error: "ログインが必要です。" };
   }
 
-  const confirmation = formData.get("confirmation");
+  const confirmed = formData.get("confirmed");
 
-  if (confirmation !== ACCOUNT_DELETE_CONFIRMATION) {
-    return { error: "確認テキストに DELETE と入力してください。" };
+  if (confirmed !== "true") {
+    return { error: "確認ダイアログで削除を確定してください。" };
   }
 
   try {
