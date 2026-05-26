@@ -8,17 +8,25 @@ import { logServerError } from "@/lib/server-errors";
 import { loginSchema } from "@/lib/zod";
 import bcrypt from "bcrypt";
 
+const googleClientId =
+  process.env.AUTH_GOOGLE_ID ?? process.env.GOOGLE_CLIENT_ID;
+const googleClientSecret =
+  process.env.AUTH_GOOGLE_SECRET ?? process.env.GOOGLE_CLIENT_SECRET;
+const githubClientId = process.env.AUTH_GITHUB_ID ?? process.env.GITHUB_ID;
+const githubClientSecret =
+  process.env.AUTH_GITHUB_SECRET ?? process.env.GITHUB_SECRET;
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
 
   providers: [
     Google({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      clientId: googleClientId!,
+      clientSecret: googleClientSecret!,
     }),
     GitHub({
-      clientId: process.env.GITHUB_ID!,
-      clientSecret: process.env.GITHUB_SECRET!,
+      clientId: githubClientId!,
+      clientSecret: githubClientSecret!,
     }),
 
     Credentials({
@@ -73,7 +81,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
   session: {
     strategy: "jwt",
-    maxAge: 60 * 60,
+    maxAge: 60 * 60 * 24 * 7,
   },
 
   callbacks: {

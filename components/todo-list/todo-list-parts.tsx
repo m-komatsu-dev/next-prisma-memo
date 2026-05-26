@@ -9,6 +9,8 @@ type TodoEditorToolbarProps = {
 };
 
 type TodoEditorLineProps = {
+  ariaLabel?: string;
+  dataTestId?: string;
   line: EditorLine;
   index: number;
   linesLength: number;
@@ -35,6 +37,8 @@ export function TodoEditorToolbar({ toggleLineKind }: TodoEditorToolbarProps) {
 }
 
 export function TodoEditorLine({
+  ariaLabel,
+  dataTestId,
   line,
   index,
   linesLength,
@@ -68,6 +72,8 @@ export function TodoEditorLine({
       )}
 
       <textarea
+        aria-label={ariaLabel}
+        data-testid={dataTestId}
         rows={1}
         ref={(node) => {
           inputRefs.current.set(line.id, node);

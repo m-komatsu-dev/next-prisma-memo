@@ -41,6 +41,8 @@ export function TodoListEditor({
         {lines.map((line, index) => (
           <TodoEditorLine
             key={line.id}
+            ariaLabel="本文"
+            dataTestId={index === 0 ? "post-content-editor" : undefined}
             line={line}
             index={index}
             linesLength={lines.length}
