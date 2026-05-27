@@ -1,4 +1,4 @@
-import type { MobileLoginResponse } from "../types/auth";
+import type { MobileLoginResponse, MobileTokenResponse } from "../types/auth";
 import type { MobileApiErrorResponse } from "../types/posts";
 import { MobileApiRequestError } from "./posts";
 
@@ -19,6 +19,8 @@ function isMobileLoginResponse(value: unknown): value is MobileLoginResponse {
     value !== null &&
     "accessToken" in value &&
     typeof value.accessToken === "string" &&
+    "refreshToken" in value &&
+    typeof value.refreshToken === "string" &&
     "user" in value &&
     typeof value.user === "object" &&
     value.user !== null &&
@@ -27,12 +29,27 @@ function isMobileLoginResponse(value: unknown): value is MobileLoginResponse {
   );
 }
 
-export async function loginWithEmailPassword(email: string, password: string) {
+function isMobileTokenResponse(value: unknown): value is MobileTokenResponse {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "accessToken" in value &&
+    typeof value.accessToken === "string" &&
+    "refreshToken" in value &&
+    typeof value.refreshToken === "string"
+  );
+}
+
+function getApiBaseUrl() {
   if (!API_BASE_URL) {
     throw new Error("EXPO_PUBLIC_API_BASE_URL が設定されていません。");
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/mobile/auth/login`, {
+  return API_BASE_URL;
+}
+
+export async function loginWithEmailPassword(email: string, password: string) {
+  const response = await fetch(`${getApiBaseUrl()}/api/mobile/auth/login`, {
     body: JSON.stringify({ email, password }),
     headers: {
       Accept: "application/json",
@@ -59,12 +76,58 @@ export async function loginWithEmailPassword(email: string, password: string) {
   return data;
 }
 
-export async function deleteMobileAccount(accessToken: string) {
-  if (!API_BASE_URL) {
-    throw new Error("EXPO_PUBLIC_API_BASE_URL が設定されていません。");
+export async function refreshMobileTokens(refreshToken: string) {
+  const response = await fetch(`${getApiBaseUrl()}/api/mobile/auth/refresh`, {
+    body: JSON.stringify({ refreshToken }),
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+
+  const data = (await response.json()) as unknown;
+
+  if (!response.ok) {
+    throw new MobileApiRequestError(
+      isMobileApiErrorResponse(data)
+        ? data.error
+        : "ログイン情報の更新に失敗しました。",
+      response.status,
+    );
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/mobile/account`, {
+  if (!isMobileTokenResponse(data)) {
+    throw new Error("トークン更新レスポンスの形式が正しくありません。");
+  }
+
+  return data;
+}
+
+export async function logoutMobileSession(refreshToken: string) {
+  const response = await fetch(`${getApiBaseUrl()}/api/mobile/auth/logout`, {
+    body: JSON.stringify({ refreshToken }),
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+
+  const data = (await response.json().catch(() => null)) as unknown;
+
+  if (!response.ok) {
+    throw new MobileApiRequestError(
+      isMobileApiErrorResponse(data)
+        ? data.error
+        : "ログアウトに失敗しました。",
+      response.status,
+    );
+  }
+}
+
+export async function deleteMobileAccount(accessToken: string) {
+  const response = await fetch(`${getApiBaseUrl()}/api/mobile/account`, {
     body: JSON.stringify({ confirmed: true }),
     headers: {
       Accept: "application/json",

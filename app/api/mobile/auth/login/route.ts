@@ -1,4 +1,4 @@
-import { createMobileAccessToken } from "@/lib/mobile-auth";
+import { createMobileApiSession } from "@/lib/mobile-auth";
 import { withMobileCors } from "@/lib/mobile-cors";
 import { prisma } from "@/lib/prisma";
 import { logServerError } from "@/lib/server-errors";
@@ -66,12 +66,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const accessToken = await createMobileAccessToken(user.id);
+    const { accessToken, refreshToken } = await createMobileApiSession(
+      user.id,
+      request.headers.get("user-agent"),
+    );
 
     return withMobileCors(
       request,
       NextResponse.json({
         accessToken,
+        refreshToken,
         user: {
           id: user.id,
           name: user.name,

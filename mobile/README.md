@@ -9,8 +9,8 @@
 - Expo + React Native + TypeScript
 - Next.js APIを利用するモバイルクライアント
 - メールアドレス + パスワードログイン
-- Bearer Token認証
-- アクセストークンをExpo SecureStoreに保存
+- access token + refresh token認証
+- access token / refresh tokenをExpo SecureStoreに保存
 - 自分のメモと共有されたメモを一覧表示
 - owner / editor / viewerの権限に応じて操作を制御
 - Gemini APIはモバイル側から直接呼ばず、Next.js API経由で実行
@@ -94,7 +94,7 @@ EXPO_PUBLIC_API_BASE_URL=https://todo-text-memo.vercel.app
 ## モバイル版の機能
 
 - メールアドレス + パスワードログイン
-- Bearer Token認証
+- access token + refresh token認証
 - 保存済みトークンによるログイン状態の復元
 - メモ一覧、詳細、作成、編集、削除
 - 作成/編集画面の自動保存
@@ -119,7 +119,7 @@ EXPO_PUBLIC_API_BASE_URL=https://todo-text-memo.vercel.app
   - 次のアイデア生成
 - アカウント削除
 
-アカウント削除は確認ダイアログで実行します。削除後は保存済みアクセストークンを消去し、ログアウト状態に戻します。
+アカウント削除は確認ダイアログで実行します。削除後は保存済みaccess token / refresh tokenを消去し、ログアウト状態に戻します。
 
 ## 利用するAPI
 
@@ -129,9 +129,13 @@ API呼び出しでは次のヘッダーを付けます。
 Authorization: Bearer <accessToken>
 ```
 
+ログイン成功時は `accessToken` と `refreshToken` を受け取り、どちらもExpo SecureStoreに保存します。通常のAPIリクエストではaccess tokenのみを使い、401が返った場合は `/api/mobile/auth/refresh` にrefresh tokenを送って新しいaccess token / refresh tokenへ入れ替えます。refreshに失敗した場合は保存済みトークンを削除してログアウト状態に戻します。
+
 | Method | Path | 内容 |
 | --- | --- | --- |
 | `POST` | `/api/mobile/auth/login` | ログイン |
+| `POST` | `/api/mobile/auth/refresh` | refresh tokenを検証し、token rotationを行う |
+| `POST` | `/api/mobile/auth/logout` | ApiSessionを失効 |
 | `GET` | `/api/mobile/posts` | 自分のメモと共有メモの一覧 |
 | `POST` | `/api/mobile/posts` | メモ作成 |
 | `GET` | `/api/mobile/posts/[id]` | メモ詳細 |
@@ -149,8 +153,7 @@ Authorization: Bearer <accessToken>
 ## モバイル版の制限
 
 - Google / GitHubログインは未対応
-- refresh token / ApiSessionは未実装
-- アクセストークンは現在12時間の短期Bearer Token
+- access tokenは15分、refresh tokenは30日
 - 公開メモ全体の閲覧はWeb版中心で、モバイルAPIは自分のメモと共有メモを返す設計
 - ストア配布やEAS Buildは未対応
 - カレンダー、リマインダー、画像添付は未実装
@@ -167,7 +170,7 @@ npm run typecheck
 | 項目 | Web版 | モバイル版 |
 | --- | --- | --- |
 | 実装 | Next.js / React | Expo / React Native |
-| 認証 | Auth.js / NextAuth | Bearer Token |
+| 認証 | Auth.js / NextAuth | access token + refresh token |
 | OAuth | Google / GitHub対応 | 未対応 |
 | データ取得 | Server Actions / Route Handlers | `/api/mobile/*` |
 | トークン保存 | NextAuth管理 | Expo SecureStore |
