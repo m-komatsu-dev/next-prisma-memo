@@ -155,6 +155,14 @@ export const loginSchema = z.object({
     .max(128, "パスワードの形式が正しくありません。"),
 });
 
+export const mobileRefreshTokenRequestSchema = z.object({
+  refreshToken: z
+    .string({ error: "refreshTokenの形式が正しくありません。" })
+    .trim()
+    .min(32, "refreshTokenの形式が正しくありません。")
+    .max(512, "refreshTokenの形式が正しくありません。"),
+});
+
 const postPayloadBaseSchema = z.object({
   id: postIdValueSchema.nullish(),
   title: postTitleSchema,

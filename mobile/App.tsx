@@ -18,7 +18,12 @@ import {
   View,
 } from "react-native";
 import { generateMobileAiContent } from "./src/api/ai";
-import { deleteMobileAccount, loginWithEmailPassword } from "./src/api/auth";
+import {
+  deleteMobileAccount,
+  loginWithEmailPassword,
+  logoutMobileSession,
+  refreshMobileTokens,
+} from "./src/api/auth";
 import {
   createMobilePostShare,
   createMobilePost,
@@ -32,9 +37,9 @@ import {
   updateMobilePost,
 } from "./src/api/posts";
 import {
-  deleteStoredAccessToken,
-  getStoredAccessToken,
-  saveAccessToken,
+  deleteStoredAuthTokens,
+  getStoredAuthTokens,
+  saveAuthTokens,
 } from "./src/storage/auth-token";
 import { Badge, Button, Card, TextField } from "./src/components/ui";
 import { colors, radius, spacing, typography } from "./src/theme";
@@ -1255,6 +1260,7 @@ function ShareSettingsScreen({
 
 export default function App() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState<string | null>(null);
   const [restoringToken, setRestoringToken] = useState(true);
   const [authViewMode, setAuthViewMode] = useState<AuthViewMode>("landing");
   const [email, setEmail] = useState("");
@@ -1290,8 +1296,9 @@ export default function App() {
   const [accountDeleteError, setAccountDeleteError] = useState("");
 
   const clearSession = useCallback(async (nextLoginError = "") => {
-    await deleteStoredAccessToken();
+    await deleteStoredAuthTokens();
     setAccessToken(null);
+    setRefreshToken(null);
     setPosts([]);
     setQuery("");
     setSelectedFilter("all");
@@ -1331,8 +1338,41 @@ export default function App() {
     [clearSession],
   );
 
+  const withAuthRetry = useCallback(
+    async <T,>(operation: (token: string) => Promise<T>) => {
+      if (!accessToken) {
+        throw new MobileApiRequestError("ログインが必要です。", 401);
+      }
+
+      try {
+        return await operation(accessToken);
+      } catch (caughtError) {
+        if (
+          !(caughtError instanceof MobileApiRequestError) ||
+          caughtError.status !== 401 ||
+          !refreshToken
+        ) {
+          throw caughtError;
+        }
+
+        try {
+          const nextTokens = await refreshMobileTokens(refreshToken);
+          await saveAuthTokens(nextTokens);
+          setAccessToken(nextTokens.accessToken);
+          setRefreshToken(nextTokens.refreshToken);
+
+          return await operation(nextTokens.accessToken);
+        } catch (refreshError) {
+          await clearSession("ログインが必要です。再度ログインしてください。");
+          throw refreshError;
+        }
+      }
+    },
+    [accessToken, clearSession, refreshToken],
+  );
+
   const loadPosts = useCallback(
-    async (token: string, nextRefreshing = false) => {
+    async (nextRefreshing = false) => {
       if (nextRefreshing) {
         setRefreshing(true);
       } else {
@@ -1343,7 +1383,9 @@ export default function App() {
       setErrorStatus(null);
 
       try {
-        const nextPosts = await fetchMobilePosts(token);
+        const nextPosts = await withAuthRetry((token) =>
+          fetchMobilePosts(token),
+        );
         setPosts(nextPosts);
       } catch (caughtError) {
         if (await handleAuthError(caughtError)) {
@@ -1365,7 +1407,7 @@ export default function App() {
         setRefreshing(false);
       }
     },
-    [handleAuthError],
+    [handleAuthError, withAuthRetry],
   );
 
   useEffect(() => {
@@ -1373,10 +1415,11 @@ export default function App() {
 
     async function restoreToken() {
       try {
-        const storedToken = await getStoredAccessToken();
+        const storedTokens = await getStoredAuthTokens();
 
         if (active) {
-          setAccessToken(storedToken);
+          setAccessToken(storedTokens?.accessToken ?? null);
+          setRefreshToken(storedTokens?.refreshToken ?? null);
         }
       } catch {
         if (active) {
@@ -1402,7 +1445,7 @@ export default function App() {
       return;
     }
 
-    loadPosts(accessToken);
+    loadPosts();
   }, [accessToken, loadPosts]);
 
   const handleLogin = useCallback(async () => {
@@ -1418,8 +1461,9 @@ export default function App() {
 
     try {
       const result = await loginWithEmailPassword(nextEmail, password);
-      await saveAccessToken(result.accessToken);
+      await saveAuthTokens(result);
       setAccessToken(result.accessToken);
+      setRefreshToken(result.refreshToken);
       setAuthViewMode("landing");
       setPassword("");
     } catch (caughtError) {
@@ -1439,12 +1483,16 @@ export default function App() {
       return;
     }
 
-    loadPosts(accessToken, true);
+    loadPosts(true);
   }, [accessToken, loadPosts]);
 
   const handleLogout = useCallback(async () => {
+    if (refreshToken) {
+      await logoutMobileSession(refreshToken).catch(() => null);
+    }
+
     await clearSession();
-  }, [clearSession]);
+  }, [clearSession, refreshToken]);
 
   const performDeleteAccount = useCallback(async () => {
     if (!accessToken) {
@@ -1456,7 +1504,7 @@ export default function App() {
     setAccountDeleteError("");
 
     try {
-      await deleteMobileAccount(accessToken);
+      await withAuthRetry((token) => deleteMobileAccount(token));
       await clearSession();
     } catch (caughtError) {
       if (await handleAuthError(caughtError)) {
@@ -1471,7 +1519,7 @@ export default function App() {
     } finally {
       setAccountDeleteLoading(false);
     }
-  }, [accessToken, clearSession, handleAuthError]);
+  }, [accessToken, clearSession, handleAuthError, withAuthRetry]);
 
   const confirmDeleteAccount = useCallback(() => {
     Alert.alert(
@@ -1535,7 +1583,9 @@ export default function App() {
       setDetailError("");
 
       try {
-        const latestPost = await fetchMobilePost(accessToken, post.id);
+        const latestPost = await withAuthRetry((token) =>
+          fetchMobilePost(token, post.id),
+        );
         setSelectedPost(latestPost);
         setPosts((currentPosts) =>
           currentPosts.map((currentPost) =>
@@ -1556,7 +1606,7 @@ export default function App() {
         setDetailLoading(false);
       }
     },
-    [accessToken, handleAuthError],
+    [accessToken, handleAuthError, withAuthRetry],
   );
 
   const handleCreate = useCallback(() => {
@@ -1591,7 +1641,9 @@ export default function App() {
       setShareError("");
 
       try {
-        const shares = await fetchMobilePostShares(accessToken, postId);
+        const shares = await withAuthRetry((token) =>
+          fetchMobilePostShares(token, postId),
+        );
         setPostShares(shares);
       } catch (caughtError) {
         if (await handleAuthError(caughtError)) {
@@ -1607,7 +1659,7 @@ export default function App() {
         setShareLoading(false);
       }
     },
-    [accessToken, handleAuthError],
+    [accessToken, handleAuthError, withAuthRetry],
   );
 
   const openShareSettings = useCallback(() => {
@@ -1651,10 +1703,12 @@ export default function App() {
     setShareMessage("");
 
     try {
-      const share = await createMobilePostShare(accessToken, selectedPost.id, {
-        email: nextEmail,
-        role: shareRole,
-      });
+      const share = await withAuthRetry((token) =>
+        createMobilePostShare(token, selectedPost.id, {
+          email: nextEmail,
+          role: shareRole,
+        }),
+      );
       setPostShares((currentShares) => {
         const exists = currentShares.some(
           (currentShare) => currentShare.id === share.id,
@@ -1681,7 +1735,14 @@ export default function App() {
     } finally {
       setShareSaving(false);
     }
-  }, [accessToken, handleAuthError, selectedPost, shareEmail, shareRole]);
+  }, [
+    accessToken,
+    handleAuthError,
+    selectedPost,
+    shareEmail,
+    shareRole,
+    withAuthRetry,
+  ]);
 
   const handleUpdateShareRole = useCallback(
     async (share: MobilePostShare, role: MobilePostShareRole) => {
@@ -1699,11 +1760,8 @@ export default function App() {
       setShareMessage("");
 
       try {
-        const updatedShare = await updateMobilePostShare(
-          accessToken,
-          selectedPost.id,
-          share.id,
-          role,
+        const updatedShare = await withAuthRetry((token) =>
+          updateMobilePostShare(token, selectedPost.id, share.id, role),
         );
         setPostShares((currentShares) =>
           currentShares.map((currentShare) =>
@@ -1725,7 +1783,7 @@ export default function App() {
         setShareSaving(false);
       }
     },
-    [accessToken, handleAuthError, selectedPost],
+    [accessToken, handleAuthError, selectedPost, withAuthRetry],
   );
 
   const performRevokeShare = useCallback(
@@ -1745,7 +1803,9 @@ export default function App() {
       setShareMessage("");
 
       try {
-        await deleteMobilePostShare(accessToken, selectedPost.id, share.id);
+        await withAuthRetry((token) =>
+          deleteMobilePostShare(token, selectedPost.id, share.id),
+        );
         setPostShares((currentShares) =>
           currentShares.filter((currentShare) => currentShare.id !== share.id),
         );
@@ -1764,7 +1824,7 @@ export default function App() {
         setShareSaving(false);
       }
     },
-    [accessToken, handleAuthError, selectedPost],
+    [accessToken, handleAuthError, selectedPost, withAuthRetry],
   );
 
   const confirmRevokeShare = useCallback(
@@ -1833,9 +1893,11 @@ export default function App() {
       setFormError("");
 
       try {
-        const savedPost = draftPostId
-          ? await updateMobilePost(accessToken, draftPostId, payload)
-          : await createMobilePost(accessToken, payload);
+        const savedPost = await withAuthRetry((token) =>
+          draftPostId
+            ? updateMobilePost(token, draftPostId, payload)
+            : createMobilePost(token, payload),
+        );
 
         setPosts((currentPosts) => {
           const exists = currentPosts.some(
@@ -1864,7 +1926,7 @@ export default function App() {
         setSaving(false);
       }
     },
-    [accessToken, handleAuthError, validatePayload],
+    [accessToken, handleAuthError, validatePayload, withAuthRetry],
   );
 
   const handleSaveEdit = useCallback(
@@ -1887,10 +1949,8 @@ export default function App() {
       setFormError("");
 
       try {
-        const updatedPost = await updateMobilePost(
-          accessToken,
-          postId,
-          payload,
+        const updatedPost = await withAuthRetry((token) =>
+          updateMobilePost(token, postId, payload),
         );
         setPosts((currentPosts) =>
           currentPosts.map((currentPost) =>
@@ -1913,7 +1973,7 @@ export default function App() {
         setSaving(false);
       }
     },
-    [accessToken, handleAuthError, selectedPost, validatePayload],
+    [accessToken, handleAuthError, selectedPost, validatePayload, withAuthRetry],
   );
 
   const handleAutoSave = useCallback(
@@ -1937,10 +1997,11 @@ export default function App() {
       setAutoSaveError("");
 
       try {
-        const savedPost =
+        const savedPost = await withAuthRetry((token) =>
           modeForAutoSave(viewMode, postId) === "create"
-            ? await createMobilePost(accessToken, payload)
-            : await updateMobilePost(accessToken, postId as number, payload);
+            ? createMobilePost(token, payload)
+            : updateMobilePost(token, postId as number, payload),
+        );
 
         setPosts((currentPosts) => {
           const exists = currentPosts.some(
@@ -1970,7 +2031,7 @@ export default function App() {
         throw caughtError;
       }
     },
-    [accessToken, handleAuthError, selectedPost, viewMode],
+    [accessToken, handleAuthError, selectedPost, viewMode, withAuthRetry],
   );
 
   const handleGenerateAi = useCallback(
@@ -1981,7 +2042,9 @@ export default function App() {
       }
 
       try {
-        return await generateMobileAiContent(accessToken, content, mode);
+        return await withAuthRetry((token) =>
+          generateMobileAiContent(token, content, mode),
+        );
       } catch (caughtError) {
         if (await handleAuthError(caughtError)) {
           throw new Error("ログインが必要です。再度ログインしてください。");
@@ -1990,7 +2053,7 @@ export default function App() {
         throw caughtError;
       }
     },
-    [accessToken, handleAuthError],
+    [accessToken, handleAuthError, withAuthRetry],
   );
 
   const performDelete = useCallback(async () => {
@@ -2008,7 +2071,9 @@ export default function App() {
     setDetailError("");
 
     try {
-      await deleteMobilePost(accessToken, selectedPost.id);
+      await withAuthRetry((token) =>
+        deleteMobilePost(token, selectedPost.id),
+      );
       setPosts((currentPosts) =>
         currentPosts.filter((currentPost) => currentPost.id !== selectedPost.id),
       );
@@ -2027,7 +2092,7 @@ export default function App() {
     } finally {
       setDeleting(false);
     }
-  }, [accessToken, handleAuthError, selectedPost]);
+  }, [accessToken, handleAuthError, selectedPost, withAuthRetry]);
 
   const confirmDelete = useCallback(() => {
     Alert.alert("メモを削除しますか？", "削除したメモは元に戻せません。", [
@@ -2643,7 +2708,7 @@ export default function App() {
             <Text style={styles.errorTitle}>{errorTitle}</Text>
             <Text style={styles.errorText}>{error}</Text>
             <Button
-              onPress={() => loadPosts(accessToken)}
+              onPress={() => loadPosts()}
               style={styles.retryButton}
               variant="secondary"
             >
