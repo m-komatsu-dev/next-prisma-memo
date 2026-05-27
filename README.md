@@ -286,14 +286,15 @@ cd ..
 DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
 AUTH_SECRET="long-random-secret"
 AUTH_TRUST_HOST="true"
+AUTH_URL="https://your-production-origin.example"
 
 MOBILE_AUTH_SECRET="long-random-mobile-secret"
 DATABASE_POOL_MAX="5"
 
-GOOGLE_CLIENT_ID="your-google-client-id"
-GOOGLE_CLIENT_SECRET="your-google-client-secret"
-GITHUB_ID="your-github-client-id"
-GITHUB_SECRET="your-github-client-secret"
+AUTH_GOOGLE_ID="your-google-client-id"
+AUTH_GOOGLE_SECRET="your-google-client-secret"
+AUTH_GITHUB_ID="your-github-client-id"
+AUTH_GITHUB_SECRET="your-github-client-secret"
 
 GEMINI_API_KEY="your-gemini-api-key"
 GEMINI_MODEL="gemini-2.5-flash"
@@ -359,12 +360,13 @@ Expo Goまたはシミュレーターで確認します。
 | `DATABASE_URL` | 必須 | PostgreSQL接続文字列 |
 | `AUTH_SECRET` | 必須 | Auth.js / NextAuthの署名 |
 | `AUTH_TRUST_HOST` | 本番推奨 | VercelなどでAuth.jsのhostを信頼 |
+| `AUTH_URL` | 本番推奨 | 本番URLのoriginのみ。pathは含めない |
 | `MOBILE_AUTH_SECRET` | 推奨 | モバイルBearer Tokenの署名 |
 | `DATABASE_POOL_MAX` | 任意 | PostgreSQL接続プール上限 |
-| `GOOGLE_CLIENT_ID` | OAuth利用時 | Google OAuth |
-| `GOOGLE_CLIENT_SECRET` | OAuth利用時 | Google OAuth |
-| `GITHUB_ID` | OAuth利用時 | GitHub OAuth |
-| `GITHUB_SECRET` | OAuth利用時 | GitHub OAuth |
+| `AUTH_GOOGLE_ID` | OAuth利用時 | Google OAuth |
+| `AUTH_GOOGLE_SECRET` | OAuth利用時 | Google OAuth |
+| `AUTH_GITHUB_ID` | OAuth利用時 | GitHub OAuth |
+| `AUTH_GITHUB_SECRET` | OAuth利用時 | GitHub OAuth |
 | `GEMINI_API_KEY` | AI利用時 | Gemini API |
 | `GEMINI_MODEL` | 任意 | 利用するGeminiモデル |
 | `EXPO_PUBLIC_API_BASE_URL` | Mobile利用時 | Expoアプリの接続先API URL |
