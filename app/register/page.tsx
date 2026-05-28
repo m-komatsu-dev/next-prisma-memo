@@ -1,6 +1,14 @@
-import { signIn } from "@/auth";
+import { isOAuthProviderConfigured, signIn } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { isRedirectError, logServerError } from "@/lib/server-errors";
+import {
+  isPrismaUniqueConstraintError,
+  isRedirectError,
+  logServerError,
+} from "@/lib/server-errors";
+import {
+  getAuthErrorMessage,
+  getOAuthProviderConfigurationMessage,
+} from "@/lib/auth-user-messages";
 import { registerSchema, termsAcceptedFormSchema } from "@/lib/zod";
 import bcrypt from "bcrypt";
 import Link from "next/link";
@@ -21,11 +29,18 @@ const initialState: RegisterActionState = {
   formError: "",
 };
 
-const initialSocialState: SocialRegisterActionState = {
-  formError: "",
+type RegisterPageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export default function RegisterPage() {
+export default async function RegisterPage({
+  searchParams,
+}: RegisterPageProps = {}) {
+  const params = await searchParams;
+  const initialSocialState: SocialRegisterActionState = {
+    formError: getAuthErrorMessage(params?.error),
+  };
+
   async function registerUser(
     _prevState: RegisterActionState,
     formData: FormData
@@ -62,6 +77,18 @@ export default function RegisterPage() {
         select: { id: true },
       });
     } catch (error) {
+      if (isPrismaUniqueConstraintError(error)) {
+        logServerError(error, {
+          action: "registerUser",
+          details: { provider: "credentials", reason: "duplicateEmail" },
+        });
+
+        return {
+          formError:
+            "このメールアドレスはすでに登録されています。ログインしてください。",
+        };
+      }
+
       logServerError(error, {
         action: "registerUser",
         details: { provider: "credentials" },
@@ -87,6 +114,10 @@ export default function RegisterPage() {
 
     if (!validatedFields.success) {
       return { formError: "利用規約への同意が必要です。" };
+    }
+
+    if (!isOAuthProviderConfigured("google")) {
+      return { formError: getOAuthProviderConfigurationMessage("google") };
     }
 
     try {
@@ -118,6 +149,10 @@ export default function RegisterPage() {
 
     if (!validatedFields.success) {
       return { formError: "利用規約への同意が必要です。" };
+    }
+
+    if (!isOAuthProviderConfigured("github")) {
+      return { formError: getOAuthProviderConfigurationMessage("github") };
     }
 
     try {

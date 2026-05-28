@@ -12,6 +12,31 @@ const googleClientId = process.env.AUTH_GOOGLE_ID;
 const googleClientSecret = process.env.AUTH_GOOGLE_SECRET;
 const githubClientId = process.env.AUTH_GITHUB_ID;
 const githubClientSecret = process.env.AUTH_GITHUB_SECRET;
+const googleProvider =
+  googleClientId && googleClientSecret
+    ? Google({
+        clientId: googleClientId,
+        clientSecret: googleClientSecret,
+      })
+    : null;
+const githubProvider =
+  githubClientId && githubClientSecret
+    ? GitHub({
+        clientId: githubClientId,
+        clientSecret: githubClientSecret,
+      })
+    : null;
+
+export const authProviderAvailability = {
+  github: Boolean(githubProvider),
+  google: Boolean(googleProvider),
+} as const;
+
+export function isOAuthProviderConfigured(
+  provider: keyof typeof authProviderAvailability,
+) {
+  return authProviderAvailability[provider];
+}
 
 type AuthLogDetails = Record<
   string,
@@ -72,20 +97,82 @@ function getOrigin(url: string) {
   }
 }
 
+function getConnectionHost(connectionString: string | undefined) {
+  if (!connectionString) {
+    return null;
+  }
+
+  try {
+    return new URL(connectionString).hostname || "missing-host";
+  } catch {
+    return "invalid-url";
+  }
+}
+
+function getAuthUrlDetails(authUrl: string | undefined) {
+  if (!authUrl) {
+    return {
+      authUrlHasPath: null,
+      authUrlOrigin: null,
+    };
+  }
+
+  try {
+    const url = new URL(authUrl);
+
+    return {
+      authUrlHasPath:
+        url.pathname !== "/" || Boolean(url.search) || Boolean(url.hash),
+      authUrlOrigin: url.origin,
+    };
+  } catch {
+    return {
+      authUrlHasPath: null,
+      authUrlOrigin: "invalid-url",
+    };
+  }
+}
+
+function logAuthRuntimeConfiguration() {
+  if (process.env.NODE_ENV !== "production" && process.env.AUTH_DEBUG !== "true") {
+    return;
+  }
+
+  logAuthEvent("authRuntimeConfiguration", {
+    ...getAuthUrlDetails(process.env.AUTH_URL),
+    authTrustHostEnabled: process.env.AUTH_TRUST_HOST === "true",
+    databaseUrlHost: getConnectionHost(process.env.DATABASE_URL),
+    directUrlHost: getConnectionHost(process.env.DIRECT_URL),
+    githubProviderConfigured: authProviderAvailability.github,
+    googleProviderConfigured: authProviderAvailability.google,
+    hasAuthGithubId: Boolean(process.env.AUTH_GITHUB_ID),
+    hasAuthGithubSecret: Boolean(process.env.AUTH_GITHUB_SECRET),
+    hasAuthGoogleId: Boolean(process.env.AUTH_GOOGLE_ID),
+    hasAuthGoogleSecret: Boolean(process.env.AUTH_GOOGLE_SECRET),
+    hasAuthSecret: Boolean(process.env.AUTH_SECRET),
+    hasAuthUrl: Boolean(process.env.AUTH_URL),
+    hasDatabaseUrl: Boolean(process.env.DATABASE_URL),
+    hasDirectUrl: Boolean(process.env.DIRECT_URL),
+    hasGithubId: Boolean(process.env.GITHUB_ID),
+    hasGithubSecret: Boolean(process.env.GITHUB_SECRET),
+    hasGoogleClientId: Boolean(process.env.GOOGLE_CLIENT_ID),
+    hasGoogleClientSecret: Boolean(process.env.GOOGLE_CLIENT_SECRET),
+  });
+}
+
+logAuthRuntimeConfiguration();
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
   basePath: "/api/auth",
+  pages: {
+    error: "/",
+    signIn: "/",
+  },
 
   providers: [
-    Google({
-      clientId: googleClientId!,
-      clientSecret: googleClientSecret!,
-    }),
-    GitHub({
-      clientId: githubClientId!,
-      clientSecret: githubClientSecret!,
-    }),
-
+    ...(googleProvider ? [googleProvider] : []),
+    ...(githubProvider ? [githubProvider] : []),
     Credentials({
       credentials: {
         email: { label: "Email", type: "email" },
