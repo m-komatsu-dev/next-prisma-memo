@@ -6,7 +6,7 @@ Next.js App Router + Prisma + PostgreSQLで構築したメモアプリです。W
 
 ## デモURL
 
-- Web App: https://todo-text-memo.vercel.app
+- Web App: https://next-prisma-memo.vercel.app
 - Repository: https://github.com/m-komatsu-dev/next-prisma-memo
 - Mobile App: `mobile/` 配下のExpoアプリとして実装
 
@@ -304,6 +304,12 @@ GEMINI_MODEL="gemini-2.5-flash"
 
 ```env
 EXPO_PUBLIC_API_BASE_URL=http://localhost:3000
+```
+
+本番Vercel環境へ接続する場合は、正式URLの `https://next-prisma-memo.vercel.app` を設定します。
+
+```env
+EXPO_PUBLIC_API_BASE_URL=https://next-prisma-memo.vercel.app
 ```
 
 詳しくは [mobile/README.md](mobile/README.md) を参照してください。

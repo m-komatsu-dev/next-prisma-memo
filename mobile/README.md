@@ -76,7 +76,7 @@ EXPO_PUBLIC_API_BASE_URL=http://192.168.x.x:3000
 本番Vercel環境へ接続する場合:
 
 ```env
-EXPO_PUBLIC_API_BASE_URL=https://todo-text-memo.vercel.app
+EXPO_PUBLIC_API_BASE_URL=https://next-prisma-memo.vercel.app
 ```
 
 `.env` を変更したあとは、Expo開発サーバーを再起動してください。`mobile/.env` はローカル接続先を含むため、コミットしないでください。
@@ -84,7 +84,7 @@ EXPO_PUBLIC_API_BASE_URL=https://todo-text-memo.vercel.app
 EAS Buildでは、`preview` / `production` profileの `EXPO_PUBLIC_API_BASE_URL` は `eas.json` に設定しています。現在の内部配布ビルドは本番Vercel APIへ接続します。
 
 ```env
-EXPO_PUBLIC_API_BASE_URL=https://todo-text-memo.vercel.app
+EXPO_PUBLIC_API_BASE_URL=https://next-prisma-memo.vercel.app
 ```
 
 `EXPO_PUBLIC_` で始まる値はアプリに埋め込まれる公開値です。APIキーやトークンなどの秘密情報は `EXPO_PUBLIC_` にせず、Expo DashboardのEnvironment variablesまたはEAS CLIでSecret / Sensitiveとして登録してください。
@@ -92,9 +92,9 @@ EXPO_PUBLIC_API_BASE_URL=https://todo-text-memo.vercel.app
 Expo Dashboard側で環境ごとに管理する運用へ寄せる場合は、`eas.json` の `env` を削除してから次のように登録します。
 
 ```bash
-npx eas-cli env:create --name EXPO_PUBLIC_API_BASE_URL --value https://todo-text-memo.vercel.app --environment development --visibility plaintext
-npx eas-cli env:create --name EXPO_PUBLIC_API_BASE_URL --value https://todo-text-memo.vercel.app --environment preview --visibility plaintext
-npx eas-cli env:create --name EXPO_PUBLIC_API_BASE_URL --value https://todo-text-memo.vercel.app --environment production --visibility plaintext
+npx eas-cli env:create --name EXPO_PUBLIC_API_BASE_URL --value https://next-prisma-memo.vercel.app --environment development --visibility plaintext
+npx eas-cli env:create --name EXPO_PUBLIC_API_BASE_URL --value https://next-prisma-memo.vercel.app --environment preview --visibility plaintext
+npx eas-cli env:create --name EXPO_PUBLIC_API_BASE_URL --value https://next-prisma-memo.vercel.app --environment production --visibility plaintext
 ```
 
 ローカル開発でEAS側の環境変数を使う場合:
@@ -154,9 +154,9 @@ EAS Build profile:
 
 | Profile | 用途 | 配布 | API URL |
 | --- | --- | --- | --- |
-| `development` | 開発用EASビルド | internal | `https://todo-text-memo.vercel.app` |
-| `preview` | 内部配布テスト | internal / Android APK | `https://todo-text-memo.vercel.app` |
-| `production` | 将来のストア提出向け | store | `https://todo-text-memo.vercel.app` |
+| `development` | 開発用EASビルド | internal | `https://next-prisma-memo.vercel.app` |
+| `preview` | 内部配布テスト | internal / Android APK | `https://next-prisma-memo.vercel.app` |
+| `production` | 将来のストア提出向け | store | `https://next-prisma-memo.vercel.app` |
 
 ## モバイル版の機能
 
