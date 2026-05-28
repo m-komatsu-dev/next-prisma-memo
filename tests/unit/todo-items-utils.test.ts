@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { compareCrossMemoTodos, type SortableTodoItem } from "@/components/all-todos-utils";
 import {
+  filterCalendarTodos,
+  getCalendarMonthDays,
+  getCalendarDayGroups,
+  getMonthRange,
+  getOverdueCalendarTodos,
+  parseLocalDateKey,
+  toLocalDateKey,
+  type CalendarTodo,
+} from "@/components/todo-calendar-utils";
+import {
   getTodoDueDisplay,
   isTodoOverdue,
   matchesTodoItemFilter,
@@ -135,5 +145,145 @@ describe("todo item filter utils", () => {
       1,
       2,
     ]);
+  });
+
+  it("groups calendar todos by local due date in the selected seven-day range", () => {
+    const calendarTodos = [
+      {
+        canEdit: true,
+        completed: false,
+        dueAt: localIso(2026, 4, 28, 18, 0),
+        id: 1,
+        position: 0,
+        postId: 1,
+        postTitle: "学校",
+        text: "数学の課題",
+      },
+      {
+        canEdit: true,
+        completed: false,
+        dueAt: localIso(2026, 4, 29, 9, 0),
+        id: 2,
+        position: 0,
+        postId: 1,
+        postTitle: "買い物",
+        text: "牛乳",
+      },
+      {
+        canEdit: true,
+        completed: false,
+        dueAt: localIso(2026, 5, 5, 9, 0),
+        id: 3,
+        position: 0,
+        postId: 1,
+        postTitle: "来週",
+        text: "対象外",
+      },
+    ] satisfies CalendarTodo[];
+
+    const groups = getCalendarDayGroups(calendarTodos, new Date(2026, 4, 28), nowTime);
+
+    expect(groups.map((group) => group.dateKey)).toEqual([
+      toLocalDateKey(new Date(2026, 4, 28)),
+      toLocalDateKey(new Date(2026, 4, 29)),
+    ]);
+    expect(groups[0]?.label).toContain("今日");
+    expect(groups[1]?.label).toContain("明日");
+  });
+
+  it("parses local date keys and collects only incomplete overdue calendar todos", () => {
+    expect(parseLocalDateKey("2026-05-28")?.getHours()).toBe(0);
+    expect(parseLocalDateKey("bad")).toBeNull();
+
+    const calendarTodos = [
+      {
+        canEdit: true,
+        completed: false,
+        dueAt: localIso(2026, 4, 28, 8, 0),
+        id: 1,
+        position: 0,
+        postId: 1,
+        postTitle: "学校",
+        text: "期限切れ",
+      },
+      {
+        canEdit: true,
+        completed: true,
+        dueAt: localIso(2026, 4, 28, 7, 0),
+        id: 2,
+        position: 0,
+        postId: 1,
+        postTitle: "学校",
+        text: "完了済み",
+      },
+    ] satisfies CalendarTodo[];
+
+    expect(getOverdueCalendarTodos(calendarTodos, nowTime).map((todo) => todo.id)).toEqual([1]);
+  });
+
+  it("keeps overdue todos out of normal calendar ranges when they are outside the selected range", () => {
+    const calendarTodos = [
+      {
+        canEdit: true,
+        completed: false,
+        dueAt: localIso(2026, 4, 20, 8, 0),
+        id: 1,
+        position: 0,
+        postId: 1,
+        postTitle: "学校",
+        text: "期間外の期限切れ",
+      },
+      {
+        canEdit: true,
+        completed: false,
+        dueAt: localIso(2026, 4, 29, 9, 0),
+        id: 2,
+        position: 0,
+        postId: 1,
+        postTitle: "学校",
+        text: "期間内",
+      },
+    ] satisfies CalendarTodo[];
+
+    const groups = getCalendarDayGroups(calendarTodos, new Date(2026, 4, 28), nowTime);
+
+    expect(groups.flatMap((group) => group.todos).map((todo) => todo.id)).toEqual([2]);
+    expect(filterCalendarTodos(calendarTodos, "overdue", nowTime).map((todo) => todo.id)).toEqual([
+      1,
+    ]);
+  });
+
+  it("builds a month grid and groups due todos by local due date", () => {
+    const calendarTodos = [
+      {
+        canEdit: true,
+        completed: false,
+        dueAt: localIso(2026, 4, 1, 9, 0),
+        id: 1,
+        position: 0,
+        postId: 1,
+        postTitle: "学校",
+        text: "月初",
+      },
+      {
+        canEdit: true,
+        completed: true,
+        dueAt: localIso(2026, 4, 28, 18, 0),
+        id: 2,
+        position: 0,
+        postId: 1,
+        postTitle: "買い物",
+        text: "完了済み",
+      },
+    ] satisfies CalendarTodo[];
+
+    const days = getCalendarMonthDays(calendarTodos, getMonthRange(new Date(2026, 4, 28)).start, nowTime);
+    const mayFirst = days.find((day) => day.dateKey === "2026-05-01");
+    const mayTwentyEighth = days.find((day) => day.dateKey === "2026-05-28");
+
+    expect(days).toHaveLength(42);
+    expect(days[0]?.dateKey).toBe("2026-04-26");
+    expect(mayFirst?.todos.map((todo) => todo.id)).toEqual([1]);
+    expect(mayTwentyEighth?.todos.map((todo) => todo.id)).toEqual([2]);
   });
 });

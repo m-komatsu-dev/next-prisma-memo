@@ -90,9 +90,14 @@ export default async function TodosPage() {
             <p className="todo-items__eyebrow">Todos</p>
             <h1>全メモTodo一覧</h1>
           </div>
-          <Link className="todo-items__button todo-items__button--ghost" href="/posts">
-            メモ一覧へ
-          </Link>
+          <div className="todos-page__actions">
+            <Link className="todo-items__button todo-items__button--ghost" href="/todos/calendar">
+              カレンダー
+            </Link>
+            <Link className="todo-items__button todo-items__button--ghost" href="/posts">
+              メモ一覧へ
+            </Link>
+          </div>
         </header>
 
         <AllTodosClient nowIso={nowIso} todos={todos} />
@@ -100,4 +105,3 @@ export default async function TodosPage() {
     </main>
   );
 }
-

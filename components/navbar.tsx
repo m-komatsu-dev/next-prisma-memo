@@ -18,6 +18,7 @@ export default async function Navbar() {
             <>
               <Link href="/posts">メモ一覧</Link>
               <Link href="/todos">Todo一覧</Link>
+              <Link href="/todos/calendar">カレンダー</Link>
               <Link href="/posts?filter=shared">共有メモ</Link>
               <Link href="/posts/new">新規作成</Link>
               <Link href="/account">アカウント</Link>
