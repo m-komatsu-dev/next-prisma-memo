@@ -8,6 +8,10 @@ import type {
   MobilePostSharesResponse,
   MobilePostShareRole,
   MobilePostsResponse,
+  MobileTodoItem,
+  MobileTodoItemPayload,
+  MobileTodoItemResponse,
+  MobileTodoItemsResponse,
 } from "../types/posts";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
@@ -55,7 +59,31 @@ function isMobilePost(value: unknown): value is MobilePost {
     "updatedAt" in value &&
     typeof value.updatedAt === "string" &&
     "tags" in value &&
-    Array.isArray(value.tags)
+    Array.isArray(value.tags) &&
+    (!("todoItems" in value) || (Array.isArray(value.todoItems) && value.todoItems.every(isMobileTodoItem)))
+  );
+}
+
+function isMobileTodoItem(value: unknown): value is MobileTodoItem {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "completed" in value &&
+    typeof value.completed === "boolean" &&
+    "createdAt" in value &&
+    typeof value.createdAt === "string" &&
+    "dueAt" in value &&
+    (typeof value.dueAt === "string" || value.dueAt === null) &&
+    "id" in value &&
+    typeof value.id === "number" &&
+    "position" in value &&
+    typeof value.position === "number" &&
+    "postId" in value &&
+    typeof value.postId === "number" &&
+    "text" in value &&
+    typeof value.text === "string" &&
+    "updatedAt" in value &&
+    typeof value.updatedAt === "string"
   );
 }
 
@@ -260,6 +288,134 @@ export async function deleteMobilePost(accessToken: string, postId: number) {
       response.status === 401
         ? "ログインが必要です。"
         : getErrorMessage(data, "メモの削除に失敗しました。"),
+      response.status,
+    );
+  }
+}
+
+export async function fetchMobileTodoItems(accessToken: string, postId: number) {
+  const { data, response } = await requestMobileApi(
+    `/api/mobile/posts/${postId}/todos`,
+    accessToken,
+  );
+
+  if (!response.ok) {
+    throw new MobileApiRequestError(
+      response.status === 401
+        ? "ログインが必要です。"
+        : getErrorMessage(data, "Todoの取得に失敗しました。"),
+      response.status,
+    );
+  }
+
+  if (
+    typeof data !== "object" ||
+    data === null ||
+    !("todoItems" in data) ||
+    !Array.isArray(data.todoItems) ||
+    !data.todoItems.every(isMobileTodoItem)
+  ) {
+    throw new Error("Todo一覧のレスポンス形式が正しくありません。");
+  }
+
+  return (data as MobileTodoItemsResponse).todoItems;
+}
+
+export async function createMobileTodoItem(
+  accessToken: string,
+  postId: number,
+  payload: { dueAt?: string | null; text: string },
+) {
+  const { data, response } = await requestMobileApi(
+    `/api/mobile/posts/${postId}/todos`,
+    accessToken,
+    {
+      body: JSON.stringify(payload),
+      headers: {
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    throw new MobileApiRequestError(
+      response.status === 401
+        ? "ログインが必要です。"
+        : getErrorMessage(data, "Todoの追加に失敗しました。"),
+      response.status,
+    );
+  }
+
+  if (
+    typeof data !== "object" ||
+    data === null ||
+    !("todoItem" in data) ||
+    !isMobileTodoItem(data.todoItem)
+  ) {
+    throw new Error("Todo追加のレスポンス形式が正しくありません。");
+  }
+
+  return (data as MobileTodoItemResponse).todoItem;
+}
+
+export async function updateMobileTodoItem(
+  accessToken: string,
+  postId: number,
+  todoItemId: number,
+  payload: MobileTodoItemPayload,
+) {
+  const { data, response } = await requestMobileApi(
+    `/api/mobile/posts/${postId}/todos/${todoItemId}`,
+    accessToken,
+    {
+      body: JSON.stringify(payload),
+      headers: {
+        "Content-Type": "application/json",
+      },
+      method: "PATCH",
+    },
+  );
+
+  if (!response.ok) {
+    throw new MobileApiRequestError(
+      response.status === 401
+        ? "ログインが必要です。"
+        : getErrorMessage(data, "Todoの更新に失敗しました。"),
+      response.status,
+    );
+  }
+
+  if (
+    typeof data !== "object" ||
+    data === null ||
+    !("todoItem" in data) ||
+    !isMobileTodoItem(data.todoItem)
+  ) {
+    throw new Error("Todo更新のレスポンス形式が正しくありません。");
+  }
+
+  return (data as MobileTodoItemResponse).todoItem;
+}
+
+export async function deleteMobileTodoItem(
+  accessToken: string,
+  postId: number,
+  todoItemId: number,
+) {
+  const { data, response } = await requestMobileApi(
+    `/api/mobile/posts/${postId}/todos/${todoItemId}`,
+    accessToken,
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (!response.ok) {
+    throw new MobileApiRequestError(
+      response.status === 401
+        ? "ログインが必要です。"
+        : getErrorMessage(data, "Todoの削除に失敗しました。"),
       response.status,
     );
   }

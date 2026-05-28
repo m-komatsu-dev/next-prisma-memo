@@ -8,6 +8,7 @@ import {
 } from "./post-form/post-form-parts";
 import type { PostFormProps } from "./post-form/types";
 import { usePostForm } from "./post-form/use-post-form";
+import TodoItemsPanel from "./todo-items";
 import { TodoListEditor } from "./todo-list";
 
 export type { PostFormPayload } from "./post-form/types";
@@ -36,6 +37,7 @@ export default function PostForm({
     handleAiTask,
     handleSubmit,
     handlePublishedChange,
+    ensureDraftPost,
   } = usePostForm({ mode, canChangePublished, initialPost, autoSaveAction, saveAction });
 
   return (
@@ -66,6 +68,15 @@ export default function PostForm({
         />
 
         {aiOpen && <PostEditorAiPanel aiMode={aiMode} handleAiTask={handleAiTask} />}
+
+        <TodoItemsPanel
+          canEdit
+          embedded
+          nowIso={initialPost?.todoNowIso ?? new Date().toISOString()}
+          onEnsurePostId={ensureDraftPost}
+          postId={postId}
+          todoItems={initialPost?.todoItems ?? []}
+        />
 
         <TodoListEditor
           name="content"

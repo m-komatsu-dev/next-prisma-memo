@@ -170,6 +170,7 @@ EAS Build profile:
 - 更新日順、作成日順、タイトル順の並び替え
 - タグ表示
 - Todo形式メモの表示・編集
+- TodoItemはAPIと型のみ対応中。普通のTodoは `dueAt: null`、期限付きTodoは日時ありで扱います
 - メモ本文のコピー
 - 共有されたメモの一覧・詳細表示
 - 共有メモのviewer / editorバッジ表示
@@ -208,6 +209,10 @@ Authorization: Bearer <accessToken>
 | `GET` | `/api/mobile/posts/[id]` | メモ詳細 |
 | `PATCH` | `/api/mobile/posts/[id]` | メモ更新 |
 | `DELETE` | `/api/mobile/posts/[id]` | メモ削除 |
+| `GET` | `/api/mobile/posts/[id]/todos` | TodoItem一覧 |
+| `POST` | `/api/mobile/posts/[id]/todos` | TodoItem追加（`dueAt: null` で普通のTodo、日時ありで期限付きTodo） |
+| `PATCH` | `/api/mobile/posts/[id]/todos/[todoId]` | TodoItem更新 |
+| `DELETE` | `/api/mobile/posts/[id]/todos/[todoId]` | TodoItem削除 |
 | `GET` | `/api/mobile/posts/[id]/shares` | 共有一覧 |
 | `POST` | `/api/mobile/posts/[id]/shares` | 共有相手を追加 |
 | `PATCH` | `/api/mobile/posts/[id]/shares/[shareId]` | 共有権限を変更 |
@@ -222,6 +227,7 @@ Authorization: Bearer <accessToken>
 - Google / GitHubログインは未対応
 - access tokenは15分、refresh tokenは30日
 - 公開メモ全体の閲覧はWeb版中心で、モバイルAPIは自分のメモと共有メモを返す設計
+- TodoItemはAPIと型のみ対応中。モバイル版の専用画面は未対応で、画面操作はWeb版優先
 - ストア配布は未対応。EAS Buildの内部配布のみ設定済み
 - カレンダー、リマインダー、画像添付は未実装
 - モバイル版の単体テストとE2Eテストは未整備
