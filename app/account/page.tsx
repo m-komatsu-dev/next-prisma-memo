@@ -10,7 +10,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "アカウント設定 - My Memo App",
-  description: "My Memo App のアカウント削除設定",
+  description: "My Memo App のアカウント設定",
 };
 
 const initialState: DeleteAccountActionState = {
@@ -35,6 +35,18 @@ export default async function AccountPage() {
             のアカウントを管理します。
           </p>
         </div>
+
+        <section className="account-panel" aria-labelledby="password-title">
+          <div>
+            <p className="account-panel__kicker">Security</p>
+            <h2 id="password-title">パスワード変更</h2>
+            <p>メールアドレスでログインするパスワードを変更します。</p>
+          </div>
+
+          <Link className="button button-primary" href="/account/password">
+            パスワード変更
+          </Link>
+        </section>
 
         <section className="account-delete" aria-labelledby="delete-title">
           <div>

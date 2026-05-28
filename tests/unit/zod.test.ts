@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   aiContentRequestSchema,
+  changePasswordSchema,
   loginSchema,
   mobileAiGenerateRequestSchema,
   postDraftPayloadSchema,
@@ -29,6 +30,16 @@ describe("zod validation", () => {
       loginSchema.safeParse({
         email: "not-an-email",
         password: "",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("validates password change confirmation", () => {
+    expect(
+      changePasswordSchema.safeParse({
+        currentPassword: "current-password",
+        newPassword: "new-password",
+        confirmPassword: "different-password",
       }).success,
     ).toBe(false);
   });
