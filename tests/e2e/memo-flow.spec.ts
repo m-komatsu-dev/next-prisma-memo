@@ -6,6 +6,8 @@ const e2eUser = {
   name: `E2E Test User ${uniqueSuffix}`,
 };
 const e2ePassword = process.env.E2E_TEST_PASSWORD ?? "";
+let currentE2ePassword = e2ePassword;
+const changedE2ePassword = `${e2ePassword.slice(0, 96)}-updated`;
 const memoTitle = `E2Eメモ ${uniqueSuffix}`;
 const memoContent = `Playwrightで作成した本文 ${uniqueSuffix}`;
 const editedMemoTitle = `E2Eメモ 編集済み ${uniqueSuffix}`;
@@ -60,12 +62,66 @@ test("ユニークなテストユーザーを登録し、ログインできる",
   await expect(page.getByRole("heading", { name: /メモ一覧/ })).toBeVisible();
 });
 
+test("ログイン後にパスワードを変更でき、古いパスワードではログインできない", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByLabel("メールアドレス").fill(e2eUser.email);
+  await page.locator('#login input[name="password"]').fill(currentE2ePassword);
+  await page.getByRole("button", { name: "メールアドレスでログイン" }).click();
+
+  await expect(page).toHaveURL(/\/posts$/);
+
+  await page.goto("/account/password");
+  await expect(page.getByRole("heading", { name: "パスワード変更" })).toBeVisible();
+
+  await page.getByLabel("現在のパスワード").fill("wrong-password");
+  await page.getByLabel("新しいパスワード", { exact: true }).fill(changedE2ePassword);
+  await page.getByLabel("新しいパスワード確認").fill(changedE2ePassword);
+  await page.getByRole("button", { name: "パスワードを変更" }).click();
+  await expect(page.getByText("現在のパスワードが違います。").first()).toBeVisible();
+
+  await page.getByLabel("現在のパスワード").fill(currentE2ePassword);
+  await page.getByLabel("新しいパスワード", { exact: true }).fill(changedE2ePassword);
+  await page.getByLabel("新しいパスワード確認").fill(`${changedE2ePassword}-x`);
+  await page.getByRole("button", { name: "パスワードを変更" }).click();
+  await expect(
+    page.getByText("新しいパスワードと確認用パスワードが一致しません。"),
+  ).toBeVisible();
+
+  await page.getByLabel("現在のパスワード").fill(currentE2ePassword);
+  await page.getByLabel("新しいパスワード", { exact: true }).fill(changedE2ePassword);
+  await page.getByLabel("新しいパスワード確認").fill(changedE2ePassword);
+  await page.getByRole("button", { name: "パスワードを変更" }).click();
+  await expect(page.getByText("パスワードを変更しました")).toBeVisible();
+
+  await page
+    .getByLabel("メインナビゲーション")
+    .getByRole("button", { name: "ログアウト" })
+    .click();
+  await expect(page).toHaveURL(/\/$/);
+
+  await page.getByLabel("メールアドレス").fill(e2eUser.email);
+  await page.locator('#login input[name="password"]').fill(currentE2ePassword);
+  await page.getByRole("button", { name: "メールアドレスでログイン" }).click();
+  await expect(
+    page.getByText("メールアドレスまたはパスワードが正しくありません"),
+  ).toBeVisible();
+
+  await page.getByLabel("メールアドレス").fill(e2eUser.email);
+  await page.locator('#login input[name="password"]').fill(changedE2ePassword);
+  await page.getByRole("button", { name: "メールアドレスでログイン" }).click();
+  await expect(page).toHaveURL(/\/posts$/);
+
+  currentE2ePassword = changedE2ePassword;
+});
+
 test("ログイン後にメモの作成・表示・詳細・編集・削除ができ、ログアウトできる", async ({
   page,
 }) => {
   await page.goto("/");
   await page.getByLabel("メールアドレス").fill(e2eUser.email);
-  await page.locator('#login input[name="password"]').fill(e2ePassword);
+  await page.locator('#login input[name="password"]').fill(currentE2ePassword);
   await page.getByRole("button", { name: "メールアドレスでログイン" }).click();
 
   await expect(page).toHaveURL(/\/posts$/);

@@ -799,6 +799,22 @@ textarea {
   }
 }
 
+@media (max-width: 700px) {
+  .account-panel,
+  .account-delete {
+    grid-template-columns: 1fr;
+  }
+
+  .account-panel > .button,
+  .account-delete__open {
+    width: 100%;
+  }
+
+  .account-password-form {
+    width: 100%;
+  }
+}
+
 .button:hover {
   transform: translateY(-2px);
 }
@@ -872,6 +888,7 @@ textarea {
 }
 
 .account-heading h1,
+.account-panel h2,
 .account-delete h2 {
   margin: 0;
   color: var(--text);
@@ -884,12 +901,14 @@ textarea {
 }
 
 .account-heading p,
+.account-panel p,
 .account-delete p {
   margin: 0;
   color: var(--text-muted);
   line-height: 1.75;
 }
 
+.account-panel,
 .account-delete {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -901,6 +920,18 @@ textarea {
   padding: 20px;
 }
 
+.account-panel {
+  align-items: start;
+}
+
+.account-panel__kicker {
+  color: var(--primary-strong) !important;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
 .account-delete__kicker {
   color: var(--danger) !important;
   font-size: 0.72rem;
@@ -909,6 +940,7 @@ textarea {
   text-transform: uppercase;
 }
 
+.account-panel h2,
 .account-delete h2 {
   margin-top: 6px;
   font-size: 1.2rem;
@@ -957,6 +989,60 @@ textarea {
 
 .account-back-link {
   justify-self: start;
+}
+
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.account-password-form {
+  display: grid;
+  width: min(100%, 360px);
+  gap: 10px;
+}
+
+.account-password-form label {
+  display: grid;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.account-password-form input {
+  min-height: 48px;
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--text);
+  padding: 0 14px;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease;
+}
+
+.account-password-form input:focus {
+  border-color: rgba(37, 99, 235, 0.58);
+  background: #ffffff;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+  outline: 0;
+}
+
+.account-password-form input[aria-invalid="true"] {
+  border-color: rgba(220, 38, 38, 0.48);
+  box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.08);
+}
+
+.account-panel__notice {
+  max-width: 360px;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: var(--radius);
+  background: rgba(239, 246, 255, 0.82);
+  padding: 12px 14px;
 }
 
 .account-delete-dialog-backdrop {
@@ -1316,6 +1402,10 @@ textarea {
 
 .field-error {
   color: var(--danger);
+}
+
+.field-success {
+  color: #15803d;
 }
 
 .field-hint {

@@ -155,6 +155,26 @@ export const loginSchema = z.object({
     .max(128, "パスワードの形式が正しくありません。"),
 });
 
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z
+      .string({ error: "現在のパスワードの形式が正しくありません。" })
+      .min(1, "現在のパスワードを入力してください。")
+      .max(128, "現在のパスワードの形式が正しくありません。"),
+    newPassword: z
+      .string({ error: "新しいパスワードの形式が正しくありません。" })
+      .min(8, "新しいパスワードは8文字以上で入力してください。")
+      .max(128, "新しいパスワードは128文字以内で入力してください。"),
+    confirmPassword: z
+      .string({ error: "新しいパスワード確認の形式が正しくありません。" })
+      .min(1, "新しいパスワード確認を入力してください。")
+      .max(128, "新しいパスワード確認の形式が正しくありません。"),
+  })
+  .refine((values) => values.newPassword === values.confirmPassword, {
+    message: "新しいパスワードと確認用パスワードが一致しません。",
+    path: ["confirmPassword"],
+  });
+
 export const mobileRefreshTokenRequestSchema = z.object({
   refreshToken: z
     .string({ error: "refreshTokenの形式が正しくありません。" })
