@@ -4,16 +4,26 @@
     "slug": "my-memo-mobile",
     "version": "0.1.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "my-memo",
     "userInterfaceStyle": "light",
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.todotextmemo.mobile"
     },
-    "android": {},
+    "android": {
+      "package": "com.todotextmemo.mobile"
+    },
     "plugins": [
       "expo-secure-store"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "6f29a96c-ecd6-44cb-a191-074152d5db67"
+      }
+    }
   }
 }
