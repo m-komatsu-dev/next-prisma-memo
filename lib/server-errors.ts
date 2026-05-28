@@ -65,6 +65,13 @@ export function getPublicErrorMessage(error: unknown, fallbackMessage: string) {
   return fallbackMessage;
 }
 
+export function isPrismaUniqueConstraintError(error: unknown) {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2002"
+  );
+}
+
 export function isRedirectError(error: unknown) {
   if (error instanceof Error && error.message.includes("NEXT_REDIRECT")) {
     return true;

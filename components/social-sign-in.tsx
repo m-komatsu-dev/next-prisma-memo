@@ -1,4 +1,5 @@
-import { signIn } from "@/auth";
+import { isOAuthProviderConfigured, signIn } from "@/auth";
+import { getOAuthProviderConfigurationMessage } from "@/lib/auth-user-messages";
 import { isRedirectError, logServerError } from "@/lib/server-errors";
 
 export function SignInWithGoogle() {
@@ -6,6 +7,10 @@ export function SignInWithGoogle() {
     <form
       action={async () => {
         "use server";
+        if (!isOAuthProviderConfigured("google")) {
+          throw new Error(getOAuthProviderConfigurationMessage("google"));
+        }
+
         try {
           await signIn("google");
         } catch (error) {
@@ -36,6 +41,10 @@ export function SignInWithGithub() {
     <form
       action={async () => {
         "use server";
+        if (!isOAuthProviderConfigured("github")) {
+          throw new Error(getOAuthProviderConfigurationMessage("github"));
+        }
+
         try {
           await signIn("github");
         } catch (error) {

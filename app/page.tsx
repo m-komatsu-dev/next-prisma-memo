@@ -1,10 +1,14 @@
-import { auth, signIn } from "@/auth";
+import { auth, isOAuthProviderConfigured, signIn } from "@/auth";
 import { SignInForm, type LoginActionState } from "@/components/sign-in";
 import { SignOut } from "@/components/sign-out";
 import {
   SocialSignInWithTerms,
   type SocialSignInActionState,
 } from "@/components/social-sign-in-with-terms";
+import {
+  getAuthErrorMessage,
+  getOAuthProviderConfigurationMessage,
+} from "@/lib/auth-user-messages";
 import { isRedirectError, logServerError } from "@/lib/server-errors";
 import { loginSchema, termsAcceptedFormSchema } from "@/lib/zod";
 import Link from "next/link";
@@ -37,12 +41,16 @@ const initialLoginState: LoginActionState = {
   error: "",
 };
 
-const initialSocialSignInState: SocialSignInActionState = {
-  formError: "",
+type HomeProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export default async function Home() {
+export default async function Home({ searchParams }: HomeProps = {}) {
   const session = await auth();
+  const params = await searchParams;
+  const initialSocialSignInState: SocialSignInActionState = {
+    formError: getAuthErrorMessage(params?.error),
+  };
 
   async function loginAction(
     _prevState: LoginActionState,
@@ -94,6 +102,10 @@ export default async function Home() {
       return { formError: "利用規約への同意が必要です。" };
     }
 
+    if (!isOAuthProviderConfigured("google")) {
+      return { formError: getOAuthProviderConfigurationMessage("google") };
+    }
+
     try {
       await signIn("google");
     } catch (error) {
@@ -123,6 +135,10 @@ export default async function Home() {
 
     if (!validatedFields.success) {
       return { formError: "利用規約への同意が必要です。" };
+    }
+
+    if (!isOAuthProviderConfigured("github")) {
+      return { formError: getOAuthProviderConfigurationMessage("github") };
     }
 
     try {
