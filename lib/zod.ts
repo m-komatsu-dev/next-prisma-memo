@@ -74,8 +74,28 @@ export const postShareIdValueSchema = z.preprocess((value) => {
   return /^\d+$/.test(trimmed) ? Number(trimmed) : value;
 }, postShareIdNumberSchema);
 
+const todoItemIdNumberSchema = z
+  .number({
+    error: "Todo IDの形式が正しくありません。",
+  })
+  .int("Todo IDの形式が正しくありません。")
+  .positive("Todo IDの形式が正しくありません。")
+  .max(MAX_POST_ID, "Todo IDの形式が正しくありません。");
+
+export const todoItemIdValueSchema = z.preprocess((value) => {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  return /^\d+$/.test(trimmed) ? Number(trimmed) : value;
+}, todoItemIdNumberSchema);
+
 const postTitleSchema = safeString("タイトル", 120);
 const postContentSchema = safeString("本文", 20_000);
+const todoItemTextSchema = safeString("Todo", 500)
+  .transform((value) => value.trim())
+  .refine((value) => value.length > 0, "Todoを入力してください。");
 const aiContentSchema = safeString("本文", 12_000);
 const termsAcceptedValueSchema = z
   .string({ error: "利用規約への同意が必要です。" })
@@ -250,6 +270,63 @@ export const updatePostShareFormSchema = postIdFormSchema.extend({
 export const revokePostShareFormSchema = postIdFormSchema.extend({
   shareId: postShareIdValueSchema,
 });
+
+const todoItemDueAtSchema = z.preprocess((value) => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const date = new Date(trimmed);
+  return Number.isNaN(date.getTime()) ? value : date;
+}, z.date({ error: "期限の形式が正しくありません。" }).nullable());
+
+export const createTodoItemSchema = postIdFormSchema.extend({
+  text: todoItemTextSchema,
+  dueAt: todoItemDueAtSchema,
+});
+
+export const updateTodoItemSchema = postIdFormSchema.extend({
+  todoItemId: todoItemIdValueSchema,
+  text: todoItemTextSchema,
+  dueAt: todoItemDueAtSchema,
+});
+
+export const toggleTodoItemSchema = postIdFormSchema.extend({
+  todoItemId: todoItemIdValueSchema,
+  completed: z.enum(["true", "false"], {
+    error: "完了状態の形式が正しくありません。",
+  }),
+});
+
+export const deleteTodoItemSchema = postIdFormSchema.extend({
+  todoItemId: todoItemIdValueSchema,
+});
+
+export const mobileCreateTodoItemSchema = z.object({
+  text: todoItemTextSchema,
+  dueAt: todoItemDueAtSchema.optional(),
+});
+
+export const mobileUpdateTodoItemSchema = z.object({
+  text: todoItemTextSchema.optional(),
+  completed: z.boolean({ error: "完了状態の形式が正しくありません。" }).optional(),
+  dueAt: todoItemDueAtSchema.optional(),
+}).refine(
+  (payload) =>
+    payload.text !== undefined ||
+    payload.completed !== undefined ||
+    payload.dueAt !== undefined,
+  "更新するTodoの内容がありません。",
+);
 
 export const mobileAddPostShareSchema = z.object({
   email: z

@@ -4,6 +4,7 @@ import {
   canEditPost,
   canManagePostShares,
   canReadPost,
+  getEditablePostWhere,
   getPostAccessRole,
   type PostAccessRole,
 } from "@/lib/post-permissions";
@@ -52,6 +53,16 @@ describe("post permissions", () => {
   it("denies access when there is no role", () => {
     expect(canReadPost(null)).toBe(false);
     expect(canReadPost(undefined)).toBe(false);
+  });
+
+  it("builds editable post filters for owners and shared editors only", () => {
+    expect(getEditablePostWhere(42, "user-1")).toEqual({
+      id: 42,
+      OR: [
+        { authorId: "user-1" },
+        { shares: { some: { userId: "user-1", role: "editor" } } },
+      ],
+    });
   });
 
   it("matches the documented role matrix", () => {

@@ -2,14 +2,21 @@ import { describe, expect, it } from "vitest";
 import {
   aiContentRequestSchema,
   changePasswordSchema,
+  createTodoItemSchema,
+  deleteTodoItemSchema,
   loginSchema,
   mobileAiGenerateRequestSchema,
+  mobileCreateTodoItemSchema,
+  mobileUpdateTodoItemSchema,
   postDraftPayloadSchema,
   postIdFormSchema,
   postIdValueSchema,
   postSavePayloadSchema,
   postShareIdValueSchema,
+  todoItemIdValueSchema,
   togglePublishedFormSchema,
+  toggleTodoItemSchema,
+  updateTodoItemSchema,
 } from "@/lib/zod";
 
 describe("zod validation", () => {
@@ -113,6 +120,83 @@ describe("zod validation", () => {
   it("validates post share IDs", () => {
     expect(postShareIdValueSchema.parse("7")).toBe(7);
     expect(postShareIdValueSchema.safeParse("-1").success).toBe(false);
+  });
+
+  it("validates todo item payloads and due dates", () => {
+    expect(
+      createTodoItemSchema.parse({
+        id: "12",
+        text: "  Pay invoice ",
+        dueAt: "2026-05-29T10:30",
+      }),
+    ).toEqual({
+      id: 12,
+      text: "Pay invoice",
+      dueAt: new Date("2026-05-29T10:30"),
+    });
+
+    expect(
+      updateTodoItemSchema.parse({
+        id: "12",
+        todoItemId: "3",
+        text: "Pay invoice",
+        dueAt: "",
+      }),
+    ).toEqual({
+      id: 12,
+      todoItemId: 3,
+      text: "Pay invoice",
+      dueAt: null,
+    });
+
+    expect(
+      createTodoItemSchema.parse({
+        id: "12",
+        text: "Buy milk",
+        dueAt: "",
+      }),
+    ).toEqual({
+      id: 12,
+      text: "Buy milk",
+      dueAt: null,
+    });
+
+    expect(mobileCreateTodoItemSchema.parse({ text: "Todo" })).toEqual({
+      text: "Todo",
+    });
+
+    expect(toggleTodoItemSchema.parse({ id: "12", todoItemId: "3", completed: "true" })).toEqual({
+      id: 12,
+      todoItemId: 3,
+      completed: "true",
+    });
+    expect(deleteTodoItemSchema.parse({ id: "12", todoItemId: "3" })).toEqual({
+      id: 12,
+      todoItemId: 3,
+    });
+    expect(todoItemIdValueSchema.safeParse("0").success).toBe(false);
+    expect(createTodoItemSchema.safeParse({ id: "12", text: " ", dueAt: null }).success).toBe(
+      false,
+    );
+    expect(createTodoItemSchema.safeParse({ id: "12", text: "Todo", dueAt: "bad" }).success).toBe(
+      false,
+    );
+    expect(mobileCreateTodoItemSchema.safeParse({ text: "Todo", dueAt: "bad" }).success).toBe(
+      false,
+    );
+  });
+
+  it("validates mobile todo item updates", () => {
+    expect(
+      mobileUpdateTodoItemSchema.parse({
+        completed: true,
+        dueAt: null,
+      }),
+    ).toEqual({
+      completed: true,
+      dueAt: null,
+    });
+    expect(mobileUpdateTodoItemSchema.safeParse({}).success).toBe(false);
   });
 
   it("validates AI modes without external API calls", () => {

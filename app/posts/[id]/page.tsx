@@ -17,6 +17,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import PostDetailActions from "./post-detail-actions";// 編集や削除など、メモ詳細画面の操作ボタンをまとめた部品を読み込みます。
 import { TodoListContent } from "@/components/todo-list";
+import TodoItemsPanel from "@/components/todo-items";
 import type { Metadata } from "next";
 import PostShareSettings from "./post-share-settings";
 
@@ -220,6 +221,19 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
             <TodoListContent content={post.content} />
           </div>
         </article>
+
+        <TodoItemsPanel
+          canEdit={canEdit}
+          nowIso={new Date().toISOString()}
+          postId={post.id}
+          todoItems={post.todoItems.map((todoItem) => ({
+            completed: todoItem.completed,
+            dueAt: todoItem.dueAt?.toISOString() ?? null,
+            id: todoItem.id,
+            position: todoItem.position,
+            text: todoItem.text,
+          }))}
+        />
 
         {canManage && (
           <PostShareSettings

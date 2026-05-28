@@ -3,12 +3,24 @@ export type MobilePostTag = {
   name: string;
 };
 
+export type MobileTodoItem = {
+  completed: boolean;
+  createdAt: string;
+  dueAt: string | null;
+  id: number;
+  position: number;
+  postId: number;
+  text: string;
+  updatedAt: string;
+};
+
 export type MobilePost = {
   accessRole: "owner" | "editor" | "viewer" | "public";
   authorId: string;
   id: number;
   title: string;
   content: string;
+  todoItems?: MobileTodoItem[];
   published: boolean;
   createdAt: string;
   updatedAt: string;
@@ -28,6 +40,20 @@ export type MobilePostPayload = {
   content: string;
   tags: string;
   published: boolean;
+};
+
+export type MobileTodoItemPayload = {
+  completed?: boolean;
+  dueAt?: string | null;
+  text?: string;
+};
+
+export type MobileTodoItemsResponse = {
+  todoItems: MobileTodoItem[];
+};
+
+export type MobileTodoItemResponse = {
+  todoItem: MobileTodoItem;
 };
 
 export type MobilePostShareRole = "viewer" | "editor";

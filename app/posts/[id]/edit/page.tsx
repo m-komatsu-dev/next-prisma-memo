@@ -53,6 +53,14 @@ export default async function EditPost({ params }: { params: Promise<{ id: strin
           content: post.content,
           tags: post.tags.map((tag) => tag.name).join(", "),
           published: post.published,
+          todoNowIso: new Date().toISOString(),
+          todoItems: post.todoItems.map((todoItem) => ({
+            completed: todoItem.completed,
+            dueAt: todoItem.dueAt?.toISOString() ?? null,
+            id: todoItem.id,
+            position: todoItem.position,
+            text: todoItem.text,
+          })),
         }}
         autoSaveAction={autoSaveEditPost}
         saveAction={saveEditPost}

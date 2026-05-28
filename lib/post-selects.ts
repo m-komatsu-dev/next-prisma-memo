@@ -7,6 +7,20 @@ const postTagsSelect = {
   },
 } satisfies Prisma.PostSelect["tags"];
 
+const todoItemsSelect = {
+  select: {
+    id: true,
+    postId: true,
+    text: true,
+    completed: true,
+    dueAt: true,
+    position: true,
+    createdAt: true,
+    updatedAt: true,
+  },
+  orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+} satisfies Prisma.PostSelect["todoItems"];
+
 export function getMemoListPostSelect(userId: string) {
   return {
     id: true,
@@ -17,6 +31,7 @@ export function getMemoListPostSelect(userId: string) {
     createdAt: true,
     updatedAt: true,
     tags: postTagsSelect,
+    todoItems: todoItemsSelect,
     shares: {
       where: { userId },
       select: {
@@ -36,6 +51,7 @@ export function getPostDetailSelect(userId: string) {
     createdAt: true,
     updatedAt: true,
     tags: postTagsSelect,
+    todoItems: todoItemsSelect,
     shares: {
       where: { userId },
       select: {
@@ -57,6 +73,7 @@ export function getPostEditorSelect(userId: string) {
         name: true,
       },
     },
+    todoItems: todoItemsSelect,
     shares: {
       where: { userId, role: "editor" },
       select: {

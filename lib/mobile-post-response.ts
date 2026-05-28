@@ -1,5 +1,6 @@
 import type { PostShareRole } from "@/app/generated/prisma";
 import { getPostAccessRole } from "@/lib/post-permissions";
+import { serializeTodoItem, type SerializableTodoItem } from "@/lib/todo-item-response";
 
 type SerializableMobilePost = {
   authorId: string;
@@ -10,6 +11,7 @@ type SerializableMobilePost = {
   shares?: { role: PostShareRole }[];
   tags: { id: number; name: string }[];
   title: string;
+  todoItems?: SerializableTodoItem[];
   updatedAt: Date;
 };
 
@@ -20,7 +22,7 @@ export function serializeMobilePost(post: SerializableMobilePost, userId: string
     id: post.id,
     title: post.title,
     content: post.content,
-    // TodoはDBモデルではなく、既存どおりcontentからパースする設計です。
+    todoItems: post.todoItems?.map(serializeTodoItem) ?? [],
     published: post.published,
     createdAt: post.createdAt.toISOString(),
     updatedAt: post.updatedAt.toISOString(),
