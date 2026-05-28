@@ -17,6 +17,18 @@ function postEditor(page: Page) {
   return page.getByRole("region", { name: "投稿エディタ" });
 }
 
+function toDateTimeLocalInputValue(date: Date) {
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return offsetDate.toISOString().slice(0, 16);
+}
+
+function localDaysFromNow(days: number, hours: number, minutes = 0) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  date.setHours(hours, minutes, 0, 0);
+  return toDateTimeLocalInputValue(date);
+}
+
 test.describe.configure({ mode: "serial" });
 
 test.skip(
@@ -119,6 +131,8 @@ test("ログイン後にパスワードを変更でき、古いパスワード�
 test("ログイン後にメモの作成・表示・詳細・編集・削除ができ、ログアウトできる", async ({
   page,
 }) => {
+  test.slow();
+
   await page.goto("/");
   await page.getByLabel("メールアドレス").fill(e2eUser.email);
   await page.locator('#login input[name="password"]').fill(currentE2ePassword);
@@ -162,7 +176,92 @@ test("ログイン後にメモの作成・表示・詳細・編集・削除が�
 
   await page.getByRole("link", { name: editedMemoTitle }).click();
   await expect(page).toHaveURL(/\/posts\/\d+$/);
-  await page.getByRole("button", { name: "削除" }).click();
+
+  const todoPanel = page.getByRole("region", { name: "このメモのTodo" });
+  await todoPanel.getByLabel("Todo内容").fill("期限なしTodo");
+  await todoPanel.getByRole("button", { name: "追加" }).click();
+  await expect(todoPanel.getByText("期限なしTodo")).toBeVisible();
+
+  await todoPanel.getByText("期限付きTodo").click();
+  await todoPanel.getByLabel("Todo内容").fill("今日のTodo");
+  await todoPanel.getByLabel("期限日時").fill(localDaysFromNow(0, 18));
+  await todoPanel.getByRole("button", { name: "追加" }).click();
+  await expect(todoPanel.getByText("今日のTodo")).toBeVisible();
+
+  await todoPanel.getByLabel("Todo内容").fill("明日のTodo");
+  await todoPanel.getByLabel("期限日時").fill(localDaysFromNow(1, 9));
+  await todoPanel.getByRole("button", { name: "追加" }).click();
+  await expect(todoPanel.getByText("明日のTodo")).toBeVisible();
+
+  await todoPanel.getByLabel("Todo内容").fill("期限切れTodo");
+  await todoPanel.getByLabel("期限日時").fill(localDaysFromNow(-1, 9));
+  await todoPanel.getByRole("button", { name: "追加" }).click();
+  await expect(todoPanel.getByText("期限切れTodo")).toBeVisible();
+
+  await todoPanel
+    .locator(".todo-items__row", { hasText: "今日のTodo" })
+    .getByRole("button", { name: "完了にする" })
+    .click();
+
+  await todoPanel.getByRole("button", { name: "すべて" }).click();
+  await expect(todoPanel.getByText("期限なしTodo")).toBeVisible();
+  await expect(todoPanel.getByText("今日のTodo")).toBeVisible();
+  await expect(todoPanel.getByText("明日のTodo")).toBeVisible();
+  await expect(todoPanel.getByText("期限切れTodo")).toBeVisible();
+
+  await todoPanel.getByRole("button", { name: "未完了" }).click();
+  await expect(todoPanel.getByText("期限なしTodo")).toBeVisible();
+  await expect(todoPanel.getByText("今日のTodo")).toHaveCount(0);
+
+  await todoPanel.getByRole("button", { name: "完了済み" }).click();
+  await expect(todoPanel.getByText("今日のTodo")).toBeVisible();
+  await expect(todoPanel.getByText("明日のTodo")).toHaveCount(0);
+
+  await todoPanel.getByRole("button", { name: "今日" }).click();
+  await expect(todoPanel.getByText("今日のTodo")).toBeVisible();
+  await expect(todoPanel.getByText("明日のTodo")).toHaveCount(0);
+
+  await todoPanel.getByRole("button", { name: "明日" }).click();
+  await expect(todoPanel.getByText("明日のTodo")).toBeVisible();
+  await expect(todoPanel.getByText("今日のTodo")).toHaveCount(0);
+
+  await todoPanel.getByRole("button", { name: "今週" }).click();
+  await expect(todoPanel.getByText("今日のTodo")).toBeVisible();
+  await expect(todoPanel.getByText("明日のTodo")).toBeVisible();
+  await expect(todoPanel.getByText("期限切れTodo")).toHaveCount(0);
+
+  await todoPanel.getByRole("button", { name: "期限切れ" }).click();
+  await expect(todoPanel.getByText("期限切れTodo")).toBeVisible();
+  await expect(todoPanel.getByText("今日のTodo")).toHaveCount(0);
+
+  await todoPanel.getByRole("button", { name: "期限なし" }).click();
+  await expect(todoPanel.getByText("期限なしTodo")).toBeVisible();
+  await expect(todoPanel.getByText("明日のTodo")).toHaveCount(0);
+
+  await todoPanel.getByText("普通のTodo").click();
+  await todoPanel.getByLabel("Todo内容").fill("絞り込み中追加Todo");
+  await todoPanel.getByRole("button", { name: "追加" }).click();
+  await expect(todoPanel.getByText("絞り込み中追加Todo")).toBeVisible();
+
+  const filteredTodoRow = todoPanel.locator(".todo-items__row").last();
+  await filteredTodoRow.getByRole("button", { name: "編集" }).click();
+  await filteredTodoRow.getByLabel("Todo").fill("絞り込み中編集Todo");
+  await filteredTodoRow.getByRole("button", { name: "保存" }).click();
+  await expect(todoPanel.getByText("絞り込み中編集Todo")).toBeVisible();
+
+  await todoPanel
+    .locator(".todo-items__row", { hasText: "絞り込み中編集Todo" })
+    .getByRole("button", { name: "完了にする" })
+    .click();
+  await expect(todoPanel.getByText("絞り込み中編集Todo")).toBeVisible();
+
+  await todoPanel
+    .locator(".todo-items__row", { hasText: "絞り込み中編集Todo" })
+    .getByRole("button", { name: "削除" })
+    .click();
+  await expect(todoPanel.getByText("絞り込み中編集Todo")).toHaveCount(0);
+
+  await page.getByLabel("メモ操作").getByRole("button", { name: "削除" }).click();
   await page
     .getByRole("dialog", { name: "このメモを削除しますか？" })
     .getByRole("button", { name: "削除する" })

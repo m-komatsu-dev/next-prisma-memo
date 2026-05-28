@@ -9,6 +9,12 @@ import {
   updateTodoItem,
 } from "@/app/posts/[id]/todo-actions";
 import type { PostFormTodoItem } from "@/components/post-form/types";
+import {
+  getTodoDueDisplay,
+  matchesTodoItemFilter,
+  todoItemFilterOptions,
+  type TodoItemFilter,
+} from "@/components/todo-items-utils";
 
 type TodoItemView = PostFormTodoItem;
 
@@ -26,14 +32,6 @@ type TodoActionState = {
   message?: string;
   success: boolean;
 };
-
-const dateTimeFormatter = new Intl.DateTimeFormat("ja-JP", {
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-});
 
 const initialActionState: TodoActionState = { success: true };
 
@@ -63,40 +61,6 @@ function toDateTimeLocalValue(value: string | null) {
 
   const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return offsetDate.toISOString().slice(0, 16);
-}
-
-function getLocalDateKey(date: Date) {
-  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-}
-
-export function getTodoDueDisplay(value: string | null, nowTime: number) {
-  if (!value) {
-    return { isOverdue: false, label: "" };
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return { isOverdue: false, label: "" };
-  }
-
-  const isOverdue = date.getTime() < nowTime;
-  if (isOverdue) {
-    return { isOverdue: true, label: `期限切れ: ${dateTimeFormatter.format(date)}` };
-  }
-
-  const now = new Date(nowTime);
-  const tomorrow = new Date(now);
-  tomorrow.setDate(now.getDate() + 1);
-
-  if (getLocalDateKey(date) === getLocalDateKey(now)) {
-    return { isOverdue: false, label: `期限: 今日 ${dateTimeFormatter.format(date).split(" ")[1] ?? ""}` };
-  }
-
-  if (getLocalDateKey(date) === getLocalDateKey(tomorrow)) {
-    return { isOverdue: false, label: `期限: 明日 ${dateTimeFormatter.format(date).split(" ")[1] ?? ""}` };
-  }
-
-  return { isOverdue: false, label: `期限: ${dateTimeFormatter.format(date)}` };
 }
 
 function TodoItemRow({
@@ -312,8 +276,12 @@ export default function TodoItemsPanel({
   const [newText, setNewText] = useState("");
   const [newDueAt, setNewDueAt] = useState("");
   const [todoKind, setTodoKind] = useState<"plain" | "due">("plain");
+  const [activeFilter, setActiveFilter] = useState<TodoItemFilter>("all");
   const [isCreating, startCreateTransition] = useTransition();
   const nowTime = new Date(nowIso).getTime();
+  const filteredItems = items.filter((todoItem) =>
+    matchesTodoItemFilter(todoItem, activeFilter, nowTime),
+  );
 
   const replaceTodoItem = (nextTodoItem: TodoItemView) => {
     setItems((currentItems) => {
@@ -479,9 +447,23 @@ export default function TodoItemsPanel({
         </p>
       )}
 
-      {items.length > 0 ? (
+      <div className="todo-items__filters" aria-label="Todoの絞り込み">
+        {todoItemFilterOptions.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            className="todo-items__filter-button"
+            aria-pressed={activeFilter === option.value}
+            onClick={() => setActiveFilter(option.value)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+
+      {filteredItems.length > 0 ? (
         <ul className="todo-items__list">
-          {items.map((todoItem) => (
+          {filteredItems.map((todoItem) => (
             <TodoItemRow
               key={todoItem.id}
               canEdit={canEdit}
@@ -492,6 +474,8 @@ export default function TodoItemsPanel({
             />
           ))}
         </ul>
+      ) : items.length > 0 ? (
+        <p className="todo-items__empty">該当するTodoはありません。</p>
       ) : (
         <p className="todo-items__empty">このメモのTodoはまだありません。</p>
       )}
