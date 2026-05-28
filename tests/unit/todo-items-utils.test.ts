@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { compareCrossMemoTodos, type SortableTodoItem } from "@/components/all-todos-utils";
 import {
   getTodoDueDisplay,
   isTodoOverdue,
@@ -94,5 +95,45 @@ describe("todo item filter utils", () => {
     expect(getTodoDueDisplay(todos.overdueCompleted.dueAt, nowTime)).toMatchObject({
       isOverdue: true,
     });
+  });
+
+  it("sorts cross-memo todos by active state, overdue and due date with no-due last", () => {
+    const sortableTodos = [
+      {
+        id: 1,
+        postId: 2,
+        position: 0,
+        completed: false,
+        dueAt: null,
+      },
+      {
+        id: 2,
+        postId: 1,
+        position: 0,
+        completed: true,
+        dueAt: localIso(2026, 4, 28, 8, 0),
+      },
+      {
+        id: 3,
+        postId: 1,
+        position: 1,
+        completed: false,
+        dueAt: localIso(2026, 4, 29, 9, 0),
+      },
+      {
+        id: 4,
+        postId: 1,
+        position: 2,
+        completed: false,
+        dueAt: localIso(2026, 4, 28, 8, 0),
+      },
+    ] satisfies SortableTodoItem[];
+
+    expect(sortableTodos.sort((a, b) => compareCrossMemoTodos(a, b, nowTime)).map((todo) => todo.id)).toEqual([
+      4,
+      3,
+      1,
+      2,
+    ]);
   });
 });
