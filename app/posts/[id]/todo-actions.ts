@@ -54,6 +54,7 @@ async function assertEditablePost(postId: number, userId: string) {
 
 function revalidateTodoPaths(postId: number) {
   revalidatePath("/posts");
+  revalidatePath("/todos");
   revalidatePath(`/posts/${postId}`);
   revalidatePath(`/posts/${postId}/edit`);
 }
