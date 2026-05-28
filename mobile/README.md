@@ -81,6 +81,30 @@ EXPO_PUBLIC_API_BASE_URL=https://todo-text-memo.vercel.app
 
 `.env` を変更したあとは、Expo開発サーバーを再起動してください。`mobile/.env` はローカル接続先を含むため、コミットしないでください。
 
+EAS Buildでは、`preview` / `production` profileの `EXPO_PUBLIC_API_BASE_URL` は `eas.json` に設定しています。現在の内部配布ビルドは本番Vercel APIへ接続します。
+
+```env
+EXPO_PUBLIC_API_BASE_URL=https://todo-text-memo.vercel.app
+```
+
+`EXPO_PUBLIC_` で始まる値はアプリに埋め込まれる公開値です。APIキーやトークンなどの秘密情報は `EXPO_PUBLIC_` にせず、Expo DashboardのEnvironment variablesまたはEAS CLIでSecret / Sensitiveとして登録してください。
+
+Expo Dashboard側で環境ごとに管理する運用へ寄せる場合は、`eas.json` の `env` を削除してから次のように登録します。
+
+```bash
+npx eas-cli env:create --name EXPO_PUBLIC_API_BASE_URL --value https://todo-text-memo.vercel.app --environment development --visibility plaintext
+npx eas-cli env:create --name EXPO_PUBLIC_API_BASE_URL --value https://todo-text-memo.vercel.app --environment preview --visibility plaintext
+npx eas-cli env:create --name EXPO_PUBLIC_API_BASE_URL --value https://todo-text-memo.vercel.app --environment production --visibility plaintext
+```
+
+ローカル開発でEAS側の環境変数を使う場合:
+
+```bash
+npx eas-cli env:pull --environment development
+```
+
+このコマンドで作成される `.env.local` もコミットしないでください。
+
 ## Expo Goでの確認方法
 
 1. ルートで `npm run dev` を実行し、Next.js APIを起動する
@@ -90,6 +114,49 @@ EXPO_PUBLIC_API_BASE_URL=https://todo-text-memo.vercel.app
 5. 実機で確認する場合は、スマホとPCを同じネットワークに接続する
 
 実機では `http://localhost:3000` はスマホ自身を指します。PC上のNext.jsへ接続するには、`http://<PCのIPアドレス>:3000` を使います。
+
+## EAS Build / 内部配布
+
+Expo Goなしでスマホへインストールする内部配布ビルドはEAS Buildを使います。`preview` profileは `distribution: "internal"` にしており、Androidは直接インストールしやすいAPKを生成します。
+
+初回セットアップ:
+
+```bash
+cd mobile
+npm install
+npx eas-cli login
+npx eas-cli build:configure
+```
+
+`build:configure` 実行時にExpo project IDが `app.json` へ追加される場合があります。Expoアカウントにログインした状態で、生成された差分を確認してください。
+
+内部配布ビルド:
+
+```bash
+cd mobile
+npm run typecheck
+npx eas-cli build --platform android --profile preview
+```
+
+iOSの内部配布ビルド:
+
+```bash
+cd mobile
+npx eas-cli device:create
+npx eas-cli build --platform ios --profile preview
+```
+
+iOSの内部配布はApple Developer Programと実機UDIDの登録が必要です。まずAndroidで確認し、iOSはテスター端末を登録してから実行してください。
+
+ビルド完了後、EAS CLIまたはExpo Dashboardに表示されるBuild URLをスマホで開きます。AndroidはAPKをダウンロードしてインストールします。iOSは登録済み端末でBuild URLを開き、案内に従ってIPAをインストールします。
+
+EAS Build profile:
+
+| Profile | 用途 | 配布 | API URL |
+| --- | --- | --- | --- |
+| `development` | 開発用EASビルド | internal | `https://todo-text-memo.vercel.app` |
+| `preview` | 内部配布テスト | internal / Android APK | `https://todo-text-memo.vercel.app` |
+| `production` | 将来のストア提出向け | store | `https://todo-text-memo.vercel.app` |
 
 ## モバイル版の機能
 
@@ -155,7 +222,7 @@ Authorization: Bearer <accessToken>
 - Google / GitHubログインは未対応
 - access tokenは15分、refresh tokenは30日
 - 公開メモ全体の閲覧はWeb版中心で、モバイルAPIは自分のメモと共有メモを返す設計
-- ストア配布やEAS Buildは未対応
+- ストア配布は未対応。EAS Buildの内部配布のみ設定済み
 - カレンダー、リマインダー、画像添付は未実装
 - モバイル版の単体テストとE2Eテストは未整備
 
