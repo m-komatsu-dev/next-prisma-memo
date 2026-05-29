@@ -160,6 +160,7 @@ export async function POST(request: Request, { params }: MobileTodoItemsRouteCon
       return tx.todoItem.create({
         data: {
           dueAt: payload.dueAt,
+          reminderAt: payload.reminderAt,
           position: (lastTodo?.position ?? -1) + 1,
           postId: post.id,
           text: payload.text,

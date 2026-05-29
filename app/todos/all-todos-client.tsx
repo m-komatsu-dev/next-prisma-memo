@@ -6,6 +6,7 @@ import { toggleTodoItem } from "@/app/posts/[id]/todo-actions";
 import { compareCrossMemoTodos } from "@/components/all-todos-utils";
 import {
   getTodoDueDisplay,
+  getTodoReminderDisplay,
   matchesTodoItemFilter,
   todoItemFilterOptions,
   type TodoItemFilter,
@@ -19,6 +20,8 @@ export type CrossMemoTodo = {
   position: number;
   postId: number;
   postTitle: string;
+  reminderAt: string | null;
+  reminderSentAt: string | null;
   text: string;
 };
 
@@ -84,6 +87,8 @@ export default function AllTodosClient({ nowIso, todos }: AllTodosClientProps) {
                   completed: updatedTodoItem.completed,
                   dueAt: updatedTodoItem.dueAt,
                   position: updatedTodoItem.position,
+                  reminderAt: updatedTodoItem.reminderAt,
+                  reminderSentAt: updatedTodoItem.reminderSentAt,
                   text: updatedTodoItem.text,
                 }
               : item,
@@ -135,6 +140,12 @@ export default function AllTodosClient({ nowIso, todos }: AllTodosClientProps) {
           {visibleItems.map((todo) => {
             const dueDisplay = getTodoDueDisplay(todo.dueAt, nowTime);
             const isOverdue = dueDisplay.isOverdue && !todo.completed;
+            const reminderDisplay = getTodoReminderDisplay(
+              todo.reminderAt,
+              todo.reminderSentAt,
+              todo.completed,
+              nowTime,
+            );
             const href = todo.canEdit ? `/posts/${todo.postId}/edit` : `/posts/${todo.postId}`;
 
             return (
@@ -172,6 +183,17 @@ export default function AllTodosClient({ nowIso, todos }: AllTodosClientProps) {
                       <span className="todo-items__due todo-items__due--empty">期限なし</span>
                     )}
                     {!todo.canEdit && <span className="memo-badge">閲覧のみ</span>}
+                    {todo.reminderAt && (
+                      <span
+                        className={
+                          reminderDisplay.isUnsentOverdue
+                            ? "todo-items__due todo-items__due--overdue"
+                            : "todo-items__due"
+                        }
+                      >
+                        {reminderDisplay.label}
+                      </span>
+                    )}
                   </span>
                 </Link>
               </li>

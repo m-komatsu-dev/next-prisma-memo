@@ -18,6 +18,7 @@ import {
   type CalendarTodo,
   type CalendarViewMode,
 } from "@/components/todo-calendar-utils";
+import { getTodoReminderDisplay } from "@/components/todo-items-utils";
 
 type TodoCalendarClientProps = {
   initialViewMode: CalendarViewMode;
@@ -52,6 +53,12 @@ function TodoCalendarItem({
   todo: CalendarTodo;
 }) {
   const isOverdue = !todo.completed && new Date(todo.dueAt).getTime() < nowTime;
+  const reminderDisplay = getTodoReminderDisplay(
+    todo.reminderAt,
+    todo.reminderSentAt,
+    todo.completed,
+    nowTime,
+  );
 
   return (
     <li
@@ -71,6 +78,11 @@ function TodoCalendarItem({
           <span className="todo-calendar__todo-meta">
             <span>{todo.postTitle}</span>
             {isOverdue && <span className="todo-calendar__overdue-label">期限切れ</span>}
+            {todo.reminderAt && (
+              <span className="todo-calendar__overdue-label">
+                {reminderDisplay.label}
+              </span>
+            )}
             {!todo.canEdit && <span className="memo-badge">閲覧のみ</span>}
           </span>
         </span>

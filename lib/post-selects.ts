@@ -14,6 +14,8 @@ const todoItemsSelect = {
     text: true,
     completed: true,
     dueAt: true,
+    reminderAt: true,
+    reminderSentAt: true,
     position: true,
     createdAt: true,
     updatedAt: true,

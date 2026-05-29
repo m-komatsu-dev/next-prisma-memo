@@ -231,6 +231,8 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
             dueAt: todoItem.dueAt?.toISOString() ?? null,
             id: todoItem.id,
             position: todoItem.position,
+            reminderAt: todoItem.reminderAt?.toISOString() ?? null,
+            reminderSentAt: todoItem.reminderSentAt?.toISOString() ?? null,
             text: todoItem.text,
           }))}
         />

@@ -1,5 +1,7 @@
 import type {
   MobileApiErrorResponse,
+  MobileCrossMemoTodoItem,
+  MobileCrossMemoTodoItemsResponse,
   MobilePost,
   MobilePostPayload,
   MobilePostResponse,
@@ -80,10 +82,26 @@ function isMobileTodoItem(value: unknown): value is MobileTodoItem {
     typeof value.position === "number" &&
     "postId" in value &&
     typeof value.postId === "number" &&
+    "reminderAt" in value &&
+    (typeof value.reminderAt === "string" || value.reminderAt === null) &&
+    "reminderSentAt" in value &&
+    (typeof value.reminderSentAt === "string" || value.reminderSentAt === null) &&
     "text" in value &&
     typeof value.text === "string" &&
     "updatedAt" in value &&
     typeof value.updatedAt === "string"
+  );
+}
+
+function isMobileCrossMemoTodoItem(
+  value: unknown,
+): value is MobileCrossMemoTodoItem {
+  return (
+    isMobileTodoItem(value) &&
+    "canEdit" in value &&
+    typeof value.canEdit === "boolean" &&
+    "postTitle" in value &&
+    typeof value.postTitle === "string"
   );
 }
 
@@ -321,10 +339,66 @@ export async function fetchMobileTodoItems(accessToken: string, postId: number) 
   return (data as MobileTodoItemsResponse).todoItems;
 }
 
+export async function fetchMobileAllTodos(accessToken: string) {
+  const { data, response } = await requestMobileApi(
+    "/api/mobile/todos",
+    accessToken,
+  );
+
+  if (!response.ok) {
+    throw new MobileApiRequestError(
+      response.status === 401
+        ? "ログインが必要です。"
+        : getErrorMessage(data, "Todo一覧の取得に失敗しました。"),
+      response.status,
+    );
+  }
+
+  if (
+    typeof data !== "object" ||
+    data === null ||
+    !("todos" in data) ||
+    !Array.isArray(data.todos) ||
+    !data.todos.every(isMobileCrossMemoTodoItem)
+  ) {
+    throw new Error("Todo一覧のレスポンス形式が正しくありません。");
+  }
+
+  return (data as MobileCrossMemoTodoItemsResponse).todos;
+}
+
+export async function fetchMobileTodoCalendar(accessToken: string) {
+  const { data, response } = await requestMobileApi(
+    "/api/mobile/todos/calendar",
+    accessToken,
+  );
+
+  if (!response.ok) {
+    throw new MobileApiRequestError(
+      response.status === 401
+        ? "ログインが必要です。"
+        : getErrorMessage(data, "Todoカレンダーの取得に失敗しました。"),
+      response.status,
+    );
+  }
+
+  if (
+    typeof data !== "object" ||
+    data === null ||
+    !("todos" in data) ||
+    !Array.isArray(data.todos) ||
+    !data.todos.every(isMobileCrossMemoTodoItem)
+  ) {
+    throw new Error("Todoカレンダーのレスポンス形式が正しくありません。");
+  }
+
+  return (data as MobileCrossMemoTodoItemsResponse).todos;
+}
+
 export async function createMobileTodoItem(
   accessToken: string,
   postId: number,
-  payload: { dueAt?: string | null; text: string },
+  payload: { dueAt?: string | null; reminderAt?: string | null; text: string },
 ) {
   const { data, response } = await requestMobileApi(
     `/api/mobile/posts/${postId}/todos`,

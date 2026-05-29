@@ -39,6 +39,8 @@ export default async function TodosPage() {
         dueAt: true,
         position: true,
         postId: true,
+        reminderAt: true,
+        reminderSentAt: true,
         post: {
           select: {
             authorId: true,
@@ -64,6 +66,8 @@ export default async function TodosPage() {
           position: todoItem.position,
           postId: todoItem.postId,
           postTitle: todoItem.post.title,
+          reminderAt: todoItem.reminderAt?.toISOString() ?? null,
+          reminderSentAt: todoItem.reminderSentAt?.toISOString() ?? null,
           text: todoItem.text,
         };
       })

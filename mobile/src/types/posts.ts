@@ -10,8 +10,15 @@ export type MobileTodoItem = {
   id: number;
   position: number;
   postId: number;
+  reminderAt: string | null;
+  reminderSentAt: string | null;
   text: string;
   updatedAt: string;
+};
+
+export type MobileCrossMemoTodoItem = MobileTodoItem & {
+  canEdit: boolean;
+  postTitle: string;
 };
 
 export type MobilePost = {
@@ -45,6 +52,7 @@ export type MobilePostPayload = {
 export type MobileTodoItemPayload = {
   completed?: boolean;
   dueAt?: string | null;
+  reminderAt?: string | null;
   text?: string;
 };
 
@@ -54,6 +62,10 @@ export type MobileTodoItemsResponse = {
 
 export type MobileTodoItemResponse = {
   todoItem: MobileTodoItem;
+};
+
+export type MobileCrossMemoTodoItemsResponse = {
+  todos: MobileCrossMemoTodoItem[];
 };
 
 export type MobilePostShareRole = "viewer" | "editor";

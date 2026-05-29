@@ -87,6 +87,10 @@ export async function PATCH(request: Request, { params }: MobileTodoItemRouteCon
   }
 
   const payload = validatedFields.data;
+  const updateData = {
+    ...payload,
+    ...(payload.reminderAt !== undefined ? { reminderSentAt: null } : {}),
+  };
 
   try {
     const post = await prisma.post.findFirst({
@@ -109,7 +113,7 @@ export async function PATCH(request: Request, { params }: MobileTodoItemRouteCon
         id: routeParams.todoItemId,
         postId: post.id,
       },
-      data: payload,
+      data: updateData,
     });
 
     if (result.count === 0) {

@@ -5,6 +5,8 @@ export type SerializableTodoItem = {
   id: number;
   position: number;
   postId: number;
+  reminderAt: Date | null;
+  reminderSentAt: Date | null;
   text: string;
   updatedAt: Date;
 };
@@ -17,6 +19,8 @@ export function serializeTodoItem(todoItem: SerializableTodoItem) {
     id: todoItem.id,
     position: todoItem.position,
     postId: todoItem.postId,
+    reminderAt: todoItem.reminderAt?.toISOString() ?? null,
+    reminderSentAt: todoItem.reminderSentAt?.toISOString() ?? null,
     text: todoItem.text,
     updatedAt: todoItem.updatedAt.toISOString(),
   };
