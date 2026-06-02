@@ -15,11 +15,12 @@ model User {
   emailVerified DateTime?
   image         String?
 
-  accounts    Account[]
-  sessions    Session[]
-  apiSessions ApiSession[]
-  posts       Post[]
-  postShares  PostShare[]
+  accounts          Account[]
+  sessions          Session[]
+  apiSessions       ApiSession[]
+  posts             Post[]
+  postShares        PostShare[]
+  pushSubscriptions PushSubscription[]
 
   createdAt DateTime @default(now()) // ← 監査ログ
   updatedAt DateTime @updatedAt
@@ -46,20 +47,40 @@ model Post {
 }
 
 model TodoItem {
-  id        Int       @id @default(autoincrement())
-  postId    Int
-  post      Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
-  text      String
-  completed Boolean   @default(false)
-  dueAt     DateTime?
-  position  Int       @default(0)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id             Int       @id @default(autoincrement())
+  postId         Int
+  post           Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  text           String
+  completed      Boolean   @default(false)
+  dueAt          DateTime?
+  reminderAt     DateTime?
+  reminderSentAt DateTime?
+  position       Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([postId])
   @@index([postId, position])
   @@index([postId, completed])
   @@index([dueAt])
+  @@index([reminderAt])
+  @@index([reminderAt, reminderSentAt, completed])
+}
+
+model PushSubscription {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expoPushToken String    @unique
+  platform      String?
+  deviceName    String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  revokedAt     DateTime?
+
+  @@index([userId])
+  @@index([userId, revokedAt])
+  @@index([revokedAt])
 }
 
 enum PostShareRole {

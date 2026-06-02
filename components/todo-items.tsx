@@ -11,6 +11,7 @@ import {
 import type { PostFormTodoItem } from "@/components/post-form/types";
 import {
   getTodoDueDisplay,
+  getTodoReminderDisplay,
   matchesTodoItemFilter,
   todoItemFilterOptions,
   type TodoItemFilter,
@@ -80,9 +81,18 @@ function TodoItemRow({
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(todoItem.text);
   const [editDueAt, setEditDueAt] = useState(toDateTimeLocalValue(todoItem.dueAt));
+  const [editReminderAt, setEditReminderAt] = useState(
+    toDateTimeLocalValue(todoItem.reminderAt),
+  );
   const [isPending, startTransition] = useTransition();
   const dueDisplay = getTodoDueDisplay(todoItem.dueAt, nowTime);
   const isOverdue = dueDisplay.isOverdue && !todoItem.completed;
+  const reminderDisplay = getTodoReminderDisplay(
+    todoItem.reminderAt,
+    todoItem.reminderSentAt,
+    todoItem.completed,
+    nowTime,
+  );
 
   const handleToggle = () => {
     if (!postId) return;
@@ -108,6 +118,7 @@ function TodoItemRow({
     const formData = buildTodoFormData({
       dueAt: editDueAt,
       postId,
+      reminderAt: editReminderAt,
       text: editText,
       todoItemId: todoItem.id,
     });
@@ -192,6 +203,16 @@ function TodoItemRow({
                 disabled={!canEdit || isPending}
               />
             </label>
+            <label>
+              <span>通知予定</span>
+              <input
+                type="datetime-local"
+                value={editReminderAt}
+                onChange={(event) => setEditReminderAt(event.target.value)}
+                onKeyDown={handleEditKeyDown}
+                disabled={!canEdit || isPending}
+              />
+            </label>
             <div className="todo-items__edit-actions">
               <button
                 type="button"
@@ -229,6 +250,18 @@ function TodoItemRow({
                   .join(" ")}
               >
                 {dueDisplay.label}
+              </span>
+            )}
+            {todoItem.reminderAt && (
+              <span
+                className={[
+                  "todo-items__due",
+                  reminderDisplay.isUnsentOverdue ? "todo-items__due--overdue" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              >
+                {reminderDisplay.label}
               </span>
             )}
           </>
@@ -275,6 +308,7 @@ export default function TodoItemsPanel({
   const [items, setItems] = useState(todoItems);
   const [newText, setNewText] = useState("");
   const [newDueAt, setNewDueAt] = useState("");
+  const [newReminderAt, setNewReminderAt] = useState("");
   const [todoKind, setTodoKind] = useState<"plain" | "due">("plain");
   const [activeFilter, setActiveFilter] = useState<TodoItemFilter>("all");
   const [isCreating, startCreateTransition] = useTransition();
@@ -337,6 +371,7 @@ export default function TodoItemsPanel({
       const formData = buildTodoFormData({
         dueAt: todoKind === "due" ? newDueAt : null,
         postId: ensuredPostId,
+        reminderAt: todoKind === "due" ? newReminderAt : null,
         text: newText.trim(),
       });
       const result = await createTodoItem(initialActionState, formData);
@@ -345,6 +380,7 @@ export default function TodoItemsPanel({
         replaceTodoItem(result.todoItem);
         setNewText("");
         setNewDueAt("");
+        setNewReminderAt("");
       }
     });
   };
@@ -417,17 +453,29 @@ export default function TodoItemsPanel({
               />
             </label>
             {todoKind === "due" && (
-              <label>
-                <span>期限日時</span>
-                <input
-                  type="datetime-local"
-                  value={newDueAt}
-                  onChange={(event) => setNewDueAt(event.target.value)}
-                  onKeyDown={handleCreateKeyDown}
-                  disabled={!canEdit || isCreating}
-                  required
-                />
-              </label>
+              <>
+                <label>
+                  <span>期限日時</span>
+                  <input
+                    type="datetime-local"
+                    value={newDueAt}
+                    onChange={(event) => setNewDueAt(event.target.value)}
+                    onKeyDown={handleCreateKeyDown}
+                    disabled={!canEdit || isCreating}
+                    required
+                  />
+                </label>
+                <label>
+                  <span>通知予定</span>
+                  <input
+                    type="datetime-local"
+                    value={newReminderAt}
+                    onChange={(event) => setNewReminderAt(event.target.value)}
+                    onKeyDown={handleCreateKeyDown}
+                    disabled={!canEdit || isCreating}
+                  />
+                </label>
+              </>
             )}
             <button
               type="button"

@@ -25,6 +25,7 @@ function readTodoFormData(formData: FormData) {
     completed: formData.get("completed"),
     dueAt: formData.get("dueAt"),
     id: formData.get("postId"),
+    reminderAt: formData.get("reminderAt"),
     text: formData.get("text"),
     todoItemId: formData.get("todoItemId"),
   };
@@ -97,6 +98,7 @@ export async function createTodoItem(
           postId: post.id,
           text: payload.text,
           dueAt: payload.dueAt,
+          reminderAt: payload.reminderAt,
           position: (lastTodo?.position ?? -1) + 1,
         },
       });
@@ -139,6 +141,9 @@ export async function updateTodoItem(
       data: {
         text: payload.text,
         dueAt: payload.dueAt,
+        ...(payload.reminderAt !== undefined
+          ? { reminderAt: payload.reminderAt, reminderSentAt: null }
+          : {}),
       },
     });
 

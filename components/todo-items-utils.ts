@@ -137,3 +137,40 @@ export function getTodoDueDisplay(value: string | null, nowTime: number) {
 
   return { isOverdue: false, label: `期限: ${dateTimeFormatter.format(date)}` };
 }
+
+export function getTodoReminderDisplay(
+  reminderAt: string | null,
+  reminderSentAt: string | null,
+  completed: boolean,
+  nowTime: number,
+) {
+  const date = parseDueAt(reminderAt);
+  if (!date) {
+    return { isPending: false, isUnsentOverdue: false, label: "" };
+  }
+
+  const isUnsentOverdue =
+    !completed && reminderSentAt === null && date.getTime() <= nowTime;
+
+  if (reminderSentAt) {
+    return {
+      isPending: false,
+      isUnsentOverdue: false,
+      label: `通知済み: ${dateTimeFormatter.format(date)}`,
+    };
+  }
+
+  if (isUnsentOverdue) {
+    return {
+      isPending: false,
+      isUnsentOverdue: true,
+      label: `未送信リマインダー: ${dateTimeFormatter.format(date)}`,
+    };
+  }
+
+  return {
+    isPending: true,
+    isUnsentOverdue: false,
+    label: `通知予定: ${dateTimeFormatter.format(date)}`,
+  };
+}

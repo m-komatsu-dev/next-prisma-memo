@@ -25,22 +25,32 @@ import {
   refreshMobileTokens,
 } from "./src/api/auth";
 import {
+  revokeMobilePushSubscription,
+  sendMobileTestPush,
+} from "./src/api/push-subscriptions";
+import {
   createMobilePostShare,
   createMobilePost,
+  createMobileTodoItem,
   deleteMobilePostShare,
   deleteMobilePost,
+  deleteMobileTodoItem,
+  fetchMobileAllTodos,
   fetchMobilePostShares,
   fetchMobilePost,
   fetchMobilePosts,
+  fetchMobileTodoCalendar,
   MobileApiRequestError,
   updateMobilePostShare,
   updateMobilePost,
+  updateMobileTodoItem,
 } from "./src/api/posts";
 import {
   deleteStoredAuthTokens,
   getStoredAuthTokens,
   saveAuthTokens,
 } from "./src/storage/auth-token";
+import { registerPushTokenAfterLogin } from "./src/notifications/register-push-token";
 import { Badge, Button, Card, TextField } from "./src/components/ui";
 import { colors, radius, spacing, typography } from "./src/theme";
 import {
@@ -53,17 +63,37 @@ import {
 import type { EditorLine } from "./src/todo-utils";
 import type {
   MobileAiMode,
+  MobileCrossMemoTodoItem,
   MobilePost,
   MobilePostPayload,
   MobilePostShare,
   MobilePostShareRole,
+  MobileTodoItem,
 } from "./src/types/posts";
 
-type ViewMode = "list" | "detail" | "create" | "edit" | "share" | "account";
+type ViewMode =
+  | "list"
+  | "detail"
+  | "create"
+  | "edit"
+  | "share"
+  | "todos"
+  | "calendar"
+  | "account";
 type AuthViewMode = "landing" | "login";
 type AutoSaveStatus = "unsaved" | "saving" | "saved" | "error";
 type StatusFilter = "all" | "mine" | "shared" | "published" | "private";
 type SortMode = "updated-desc" | "created-desc" | "title-asc";
+type TodoFilter =
+  | "all"
+  | "active"
+  | "completed"
+  | "today"
+  | "tomorrow"
+  | "week"
+  | "overdue"
+  | "noDue";
+type MainTab = "list" | "todos" | "calendar" | "account";
 
 const AUTO_SAVE_DEBOUNCE_MS = 1500;
 
@@ -103,11 +133,42 @@ const sortOptions: { label: string; value: SortMode }[] = [
   { label: "タイトル", value: "title-asc" },
 ];
 
+const todoFilters: { label: string; value: TodoFilter }[] = [
+  { label: "すべて", value: "all" },
+  { label: "未完了", value: "active" },
+  { label: "完了済み", value: "completed" },
+  { label: "今日", value: "today" },
+  { label: "明日", value: "tomorrow" },
+  { label: "今週", value: "week" },
+  { label: "期限切れ", value: "overdue" },
+  { label: "期限なし", value: "noDue" },
+];
+
+const mainTabs: { label: string; value: MainTab }[] = [
+  { label: "メモ", value: "list" },
+  { label: "Todo", value: "todos" },
+  { label: "カレンダー", value: "calendar" },
+  { label: "アカウント", value: "account" },
+];
+
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
 const dateFormatter = new Intl.DateTimeFormat("ja-JP", {
   dateStyle: "medium",
   timeStyle: "short",
+});
+
+const todoDateFormatter = new Intl.DateTimeFormat("ja-JP", {
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+const calendarDateFormatter = new Intl.DateTimeFormat("ja-JP", {
+  month: "2-digit",
+  day: "2-digit",
+  weekday: "short",
 });
 
 function formatUpdatedAt(value: string) {
@@ -118,6 +179,155 @@ function formatUpdatedAt(value: string) {
   }
 
   return dateFormatter.format(date);
+}
+
+function formatTodoDateTime(value: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : todoDateFormatter.format(date);
+}
+
+function formatDateTimeInput(value: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
+
+function parseTodoDateInput(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const normalized = trimmed.includes("T")
+    ? trimmed
+    : trimmed.replace(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})$/, "$1T$2");
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function getLocalDayStart(date: Date) {
+  const nextDate = new Date(date);
+  nextDate.setHours(0, 0, 0, 0);
+  return nextDate;
+}
+
+function addLocalDays(date: Date, days: number) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+}
+
+function isSameLocalDay(value: string | null, targetDate: Date) {
+  if (!value) return false;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+
+  const start = getLocalDayStart(targetDate);
+  const end = addLocalDays(start, 1);
+  return date.getTime() >= start.getTime() && date.getTime() < end.getTime();
+}
+
+function isTodoOverdue(todo: Pick<MobileTodoItem, "completed" | "dueAt">) {
+  if (!todo.dueAt || todo.completed) return false;
+
+  const dueDate = new Date(todo.dueAt);
+  return !Number.isNaN(dueDate.getTime()) && dueDate.getTime() < Date.now();
+}
+
+function isTodoDueThisWeek(todo: Pick<MobileTodoItem, "dueAt">) {
+  if (!todo.dueAt) return false;
+
+  const dueDate = new Date(todo.dueAt);
+  if (Number.isNaN(dueDate.getTime())) return false;
+
+  const start = getLocalDayStart(new Date());
+  const end = addLocalDays(start, 7);
+  return dueDate.getTime() >= start.getTime() && dueDate.getTime() < end.getTime();
+}
+
+function getTodoDueLabel(todo: Pick<MobileTodoItem, "completed" | "dueAt">) {
+  if (!todo.dueAt) return "期限なし";
+  if (isTodoOverdue(todo)) return `期限切れ ${formatTodoDateTime(todo.dueAt)}`;
+  if (isSameLocalDay(todo.dueAt, new Date())) {
+    return `今日 ${formatTodoDateTime(todo.dueAt)}`;
+  }
+  if (isSameLocalDay(todo.dueAt, addLocalDays(new Date(), 1))) {
+    return `明日 ${formatTodoDateTime(todo.dueAt)}`;
+  }
+  return `期限 ${formatTodoDateTime(todo.dueAt)}`;
+}
+
+function getTodoReminderLabel(todo: Pick<MobileTodoItem, "completed" | "reminderAt" | "reminderSentAt">) {
+  if (!todo.reminderAt) return "";
+
+  const reminderDate = new Date(todo.reminderAt);
+  const reminderText = formatTodoDateTime(todo.reminderAt);
+
+  if (todo.reminderSentAt) return `通知済み ${reminderText}`;
+  if (
+    !todo.completed &&
+    !Number.isNaN(reminderDate.getTime()) &&
+    reminderDate.getTime() <= Date.now()
+  ) {
+    return `未送信リマインダー ${reminderText}`;
+  }
+  return `通知予定 ${reminderText}`;
+}
+
+function matchesTodoFilter(todo: MobileTodoItem, filter: TodoFilter) {
+  switch (filter) {
+    case "active":
+      return !todo.completed;
+    case "completed":
+      return todo.completed;
+    case "today":
+      return isSameLocalDay(todo.dueAt, new Date());
+    case "tomorrow":
+      return isSameLocalDay(todo.dueAt, addLocalDays(new Date(), 1));
+    case "week":
+      return isTodoDueThisWeek(todo);
+    case "overdue":
+      return isTodoOverdue(todo);
+    case "noDue":
+      return todo.dueAt === null;
+    case "all":
+    default:
+      return true;
+  }
+}
+
+function compareTodos(a: MobileTodoItem, b: MobileTodoItem) {
+  if (a.completed !== b.completed) return a.completed ? 1 : -1;
+
+  const aOverdue = isTodoOverdue(a);
+  const bOverdue = isTodoOverdue(b);
+  if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
+
+  const aDue = a.dueAt ? new Date(a.dueAt).getTime() : null;
+  const bDue = b.dueAt ? new Date(b.dueAt).getTime() : null;
+  if (aDue !== null && bDue !== null && aDue !== bDue) return aDue - bDue;
+  if (aDue !== null || bDue !== null) return aDue === null ? 1 : -1;
+
+  return a.position - b.position || a.id - b.id;
+}
+
+function getCalendarDateKey(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function getPlainPreview(content: string) {
@@ -361,6 +571,460 @@ function PostCard({
         </View>
       </Card>
     </Pressable>
+  );
+}
+
+function MainTabBar({
+  activeTab,
+  onNavigate,
+}: {
+  activeTab: MainTab;
+  onNavigate: (tab: MainTab) => void;
+}) {
+  return (
+    <View style={styles.mainTabBar}>
+      {mainTabs.map((tab) => (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ selected: activeTab === tab.value }}
+          key={tab.value}
+          onPress={() => onNavigate(tab.value)}
+          style={({ pressed }) => [
+            styles.mainTabButton,
+            activeTab === tab.value ? styles.mainTabButtonActive : undefined,
+            pressed ? styles.buttonPressed : undefined,
+          ]}
+        >
+          <Text
+            style={[
+              styles.mainTabText,
+              activeTab === tab.value ? styles.mainTabTextActive : undefined,
+            ]}
+          >
+            {tab.label}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+function TodoItemRow({
+  canEdit,
+  onDelete,
+  onEdit,
+  onPress,
+  onToggle,
+  postTitle,
+  saving,
+  todo,
+}: {
+  canEdit: boolean;
+  onDelete?: () => void;
+  onEdit?: () => void;
+  onPress?: () => void;
+  onToggle?: () => void;
+  postTitle?: string;
+  saving?: boolean;
+  todo: MobileTodoItem;
+}) {
+  const overdue = isTodoOverdue(todo);
+  const reminderLabel = getTodoReminderLabel(todo);
+
+  const content = (
+    <>
+      <Text
+        style={[
+          styles.modelTodoText,
+          todo.completed ? styles.todoTextChecked : undefined,
+        ]}
+      >
+        {todo.text}
+      </Text>
+      <View style={styles.modelTodoMetaRow}>
+        {postTitle ? (
+          <Text style={styles.modelTodoMeta} numberOfLines={1}>
+            {postTitle}
+          </Text>
+        ) : null}
+        <Text
+          style={[
+            styles.modelTodoMeta,
+            overdue ? styles.modelTodoMetaOverdue : undefined,
+          ]}
+        >
+          {getTodoDueLabel(todo)}
+        </Text>
+        {reminderLabel ? (
+          <Text
+            style={[
+              styles.modelTodoMeta,
+              reminderLabel.startsWith("未送信")
+                ? styles.modelTodoMetaOverdue
+                : undefined,
+            ]}
+          >
+            {reminderLabel}
+          </Text>
+        ) : null}
+        {!canEdit ? <Text style={styles.modelTodoMeta}>閲覧のみ</Text> : null}
+      </View>
+    </>
+  );
+
+  return (
+    <View
+      style={[
+        styles.modelTodoRow,
+        todo.completed ? styles.modelTodoRowCompleted : undefined,
+        overdue ? styles.modelTodoRowOverdue : undefined,
+      ]}
+    >
+      <View style={styles.modelTodoMain}>
+        <Pressable
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: todo.completed }}
+          disabled={!canEdit || saving || !onToggle}
+          onPress={onToggle}
+          style={({ pressed }) => [
+            styles.modelTodoCheckButton,
+            pressed ? styles.buttonPressed : undefined,
+          ]}
+        >
+          <View
+            style={[
+              styles.todoCheckbox,
+              todo.completed ? styles.todoCheckboxChecked : undefined,
+            ]}
+          >
+            {todo.completed ? <Text style={styles.todoCheckboxMark}>x</Text> : null}
+          </View>
+        </Pressable>
+
+        {onPress ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={onPress}
+            style={({ pressed }) => [
+              styles.modelTodoTextBlock,
+              pressed ? styles.buttonPressed : undefined,
+            ]}
+          >
+            {content}
+          </Pressable>
+        ) : (
+          <View style={styles.modelTodoTextBlock}>{content}</View>
+        )}
+      </View>
+
+      {canEdit && (onEdit || onDelete) ? (
+        <View style={styles.modelTodoActions}>
+          {onEdit ? (
+            <Button
+              disabled={saving}
+              onPress={onEdit}
+              style={styles.modelTodoActionButton}
+              variant="secondary"
+            >
+              編集
+            </Button>
+          ) : null}
+          {onDelete ? (
+            <Button
+              disabled={saving}
+              onPress={onDelete}
+              style={styles.modelTodoActionButton}
+              variant="danger"
+            >
+              削除
+            </Button>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function TodoItemsPanel({
+  canEdit,
+  error,
+  onCreate,
+  onDelete,
+  onToggle,
+  onUpdate,
+  savingId,
+  todoItems,
+}: {
+  canEdit: boolean;
+  error: string;
+  onCreate: (payload: { dueAt: string | null; reminderAt?: string | null; text: string }) => void;
+  onDelete: (todo: MobileTodoItem) => void;
+  onToggle: (todo: MobileTodoItem) => void;
+  onUpdate: (
+    todo: MobileTodoItem,
+    payload: { dueAt?: string | null; reminderAt?: string | null; text?: string },
+  ) => void;
+  savingId: number | "new" | null;
+  todoItems: MobileTodoItem[];
+}) {
+  const [newTodoKind, setNewTodoKind] = useState<"normal" | "due">("normal");
+  const [newText, setNewText] = useState("");
+  const [newDueAt, setNewDueAt] = useState("");
+  const [newReminderAt, setNewReminderAt] = useState("");
+  const [localError, setLocalError] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editText, setEditText] = useState("");
+  const [editDueAt, setEditDueAt] = useState("");
+  const [editReminderAt, setEditReminderAt] = useState("");
+  const sortedTodoItems = useMemo(
+    () => [...todoItems].sort(compareTodos),
+    [todoItems],
+  );
+
+  const beginEdit = useCallback((todo: MobileTodoItem) => {
+    setEditingId(todo.id);
+    setEditText(todo.text);
+    setEditDueAt(formatDateTimeInput(todo.dueAt));
+    setEditReminderAt(formatDateTimeInput(todo.reminderAt));
+    setLocalError("");
+  }, []);
+
+  const submitNewTodo = useCallback(() => {
+    const text = newText.trim();
+    if (!text) {
+      setLocalError("Todo本文を入力してください。");
+      return;
+    }
+
+    const dueAt = newTodoKind === "due" ? parseTodoDateInput(newDueAt) : null;
+    if (newTodoKind === "due" && !dueAt) {
+      setLocalError("期限日時を YYYY-MM-DD HH:mm 形式で入力してください。");
+      return;
+    }
+
+    const reminderAt = newReminderAt.trim()
+      ? parseTodoDateInput(newReminderAt)
+      : null;
+    if (newReminderAt.trim() && !reminderAt) {
+      setLocalError("リマインダー日時を YYYY-MM-DD HH:mm 形式で入力してください。");
+      return;
+    }
+
+    setLocalError("");
+    onCreate({ dueAt, reminderAt, text });
+    setNewText("");
+    setNewDueAt("");
+    setNewReminderAt("");
+  }, [newDueAt, newReminderAt, newText, newTodoKind, onCreate]);
+
+  const submitEdit = useCallback(
+    (todo: MobileTodoItem) => {
+      const text = editText.trim();
+      if (!text) {
+        setLocalError("Todo本文を入力してください。");
+        return;
+      }
+
+      const dueAt = editDueAt.trim() ? parseTodoDateInput(editDueAt) : null;
+      if (editDueAt.trim() && !dueAt) {
+        setLocalError("期限日時を YYYY-MM-DD HH:mm 形式で入力してください。");
+        return;
+      }
+
+      const reminderAt = editReminderAt.trim()
+        ? parseTodoDateInput(editReminderAt)
+        : null;
+      if (editReminderAt.trim() && !reminderAt) {
+        setLocalError("リマインダー日時を YYYY-MM-DD HH:mm 形式で入力してください。");
+        return;
+      }
+
+      setLocalError("");
+      onUpdate(todo, { dueAt, reminderAt, text });
+      setEditingId(null);
+    },
+    [editDueAt, editReminderAt, editText, onUpdate],
+  );
+
+  return (
+    <View style={styles.modelTodoPanel}>
+      <View style={styles.modelTodoHeader}>
+        <View>
+          <Text style={styles.kicker}>Todo items</Text>
+          <Text style={styles.modelTodoTitle}>期限付きTodo</Text>
+        </View>
+        {!canEdit ? <Badge variant="shared">閲覧のみ</Badge> : null}
+      </View>
+
+      {canEdit ? (
+        <Card style={[styles.modelTodoForm, styles.flatSurface]}>
+          <View style={styles.todoKindRow}>
+            {(["normal", "due"] as const).map((kind) => (
+              <Pressable
+                accessibilityRole="button"
+                key={kind}
+                onPress={() => setNewTodoKind(kind)}
+                style={[
+                  styles.filterChip,
+                  newTodoKind === kind ? styles.filterChipActive : undefined,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    newTodoKind === kind ? styles.filterChipTextActive : undefined,
+                  ]}
+                >
+                  {kind === "normal" ? "普通のTodo" : "期限付きTodo"}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <TextField
+            editable={savingId !== "new"}
+            label="Todo本文"
+            onChangeText={setNewText}
+            placeholder="やること"
+            value={newText}
+          />
+          {newTodoKind === "due" ? (
+            <TextField
+              editable={savingId !== "new"}
+              label="期限日時"
+              onChangeText={setNewDueAt}
+              placeholder="2026-05-29 18:30"
+              value={newDueAt}
+            />
+          ) : null}
+          <TextField
+            editable={savingId !== "new"}
+            label="リマインダー"
+            onChangeText={setNewReminderAt}
+            placeholder="任意: 2026-05-29 09:00"
+            value={newReminderAt}
+          />
+          <Button
+            disabled={savingId !== null}
+            loading={savingId === "new"}
+            onPress={submitNewTodo}
+            style={styles.fullButton}
+          >
+            Todoを追加
+          </Button>
+        </Card>
+      ) : null}
+
+      {error || localError ? (
+        <Text style={styles.formError}>{localError || error}</Text>
+      ) : null}
+
+      {sortedTodoItems.length > 0 ? (
+        <View style={styles.modelTodoList}>
+          {sortedTodoItems.map((todo) =>
+            editingId === todo.id ? (
+              <Card key={todo.id} style={[styles.modelTodoEditCard, styles.flatSurface]}>
+                <TextField
+                  editable={savingId !== todo.id}
+                  label="Todo本文"
+                  onChangeText={setEditText}
+                  value={editText}
+                />
+                <TextField
+                  editable={savingId !== todo.id}
+                  label="期限日時"
+                  onChangeText={setEditDueAt}
+                  placeholder="空欄で期限なし"
+                  value={editDueAt}
+                />
+                <TextField
+                  editable={savingId !== todo.id}
+                  label="リマインダー"
+                  onChangeText={setEditReminderAt}
+                  placeholder="空欄でなし"
+                  value={editReminderAt}
+                />
+                <View style={styles.modelTodoEditActions}>
+                  <Button
+                    disabled={savingId !== null}
+                    onPress={() => setEditingId(null)}
+                    style={styles.formActionButton}
+                    variant="secondary"
+                  >
+                    キャンセル
+                  </Button>
+                  <Button
+                    disabled={savingId !== null}
+                    loading={savingId === todo.id}
+                    onPress={() => submitEdit(todo)}
+                    style={styles.formActionButton}
+                    variant="dark"
+                  >
+                    保存
+                  </Button>
+                </View>
+              </Card>
+            ) : (
+              <TodoItemRow
+                canEdit={canEdit}
+                key={todo.id}
+                onDelete={() => onDelete(todo)}
+                onEdit={() => beginEdit(todo)}
+                onToggle={() => onToggle(todo)}
+                saving={savingId === todo.id}
+                todo={todo}
+              />
+            ),
+          )}
+        </View>
+      ) : (
+        <Text style={styles.modelTodoEmpty}>このメモのTodoItemはまだありません。</Text>
+      )}
+    </View>
+  );
+}
+
+function MemoTodoSummary({ todoItems }: { todoItems: MobileTodoItem[] }) {
+  const sortedTodoItems = useMemo(
+    () => [...todoItems].sort(compareTodos).slice(0, 5),
+    [todoItems],
+  );
+
+  if (todoItems.length === 0) {
+    return null;
+  }
+
+  return (
+    <View style={styles.memoTodoSummary}>
+      <Text style={styles.editorToolbarText}>期限付きTodo</Text>
+      {sortedTodoItems.map((todo) => (
+        <View
+          key={todo.id}
+          style={[
+            styles.memoTodoSummaryRow,
+            todo.completed ? styles.modelTodoRowCompleted : undefined,
+            isTodoOverdue(todo) ? styles.modelTodoRowOverdue : undefined,
+          ]}
+        >
+          <Text
+            style={[
+              styles.memoTodoSummaryText,
+              todo.completed ? styles.todoTextChecked : undefined,
+            ]}
+            numberOfLines={2}
+          >
+            {todo.text}
+          </Text>
+          <Text
+            style={[
+              styles.memoTodoSummaryMeta,
+              isTodoOverdue(todo) ? styles.modelTodoMetaOverdue : undefined,
+            ]}
+          >
+            {getTodoDueLabel(todo)}
+          </Text>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -1042,6 +1706,10 @@ function MemoForm({
             value={content}
           />
 
+          {mode === "edit" && initialPost?.todoItems ? (
+            <MemoTodoSummary todoItems={initialPost.todoItems} />
+          ) : null}
+
           <TextInput
             autoCapitalize="none"
             editable={!saving}
@@ -1294,6 +1962,24 @@ export default function App() {
   const [shareMessage, setShareMessage] = useState("");
   const [accountDeleteLoading, setAccountDeleteLoading] = useState(false);
   const [accountDeleteError, setAccountDeleteError] = useState("");
+  const [pushToken, setPushToken] = useState<string | null>(null);
+  const [pushStatusMessage, setPushStatusMessage] = useState("");
+  const [pushTestLoading, setPushTestLoading] = useState(false);
+  const [todoSavingId, setTodoSavingId] = useState<number | "new" | null>(null);
+  const [todoError, setTodoError] = useState("");
+  const [allTodos, setAllTodos] = useState<MobileCrossMemoTodoItem[]>([]);
+  const [allTodosLoading, setAllTodosLoading] = useState(false);
+  const [allTodosRefreshing, setAllTodosRefreshing] = useState(false);
+  const [allTodosError, setAllTodosError] = useState("");
+  const [todoFilter, setTodoFilter] = useState<TodoFilter>("all");
+  const [calendarTodos, setCalendarTodos] = useState<MobileCrossMemoTodoItem[]>([]);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [calendarRefreshing, setCalendarRefreshing] = useState(false);
+  const [calendarError, setCalendarError] = useState("");
+  const selectedPostCanEdit =
+    selectedPost?.accessRole === "owner" || selectedPost?.accessRole === "editor";
+  const selectedPostCanDelete = selectedPost?.accessRole === "owner";
+  const selectedPostCanManageShares = selectedPost?.accessRole === "owner";
 
   const clearSession = useCallback(async (nextLoginError = "") => {
     await deleteStoredAuthTokens();
@@ -1318,6 +2004,15 @@ export default function App() {
     setShareError("");
     setShareMessage("");
     setAccountDeleteError("");
+    setPushToken(null);
+    setPushStatusMessage("");
+    setTodoSavingId(null);
+    setTodoError("");
+    setAllTodos([]);
+    setAllTodosError("");
+    setTodoFilter("all");
+    setCalendarTodos([]);
+    setCalendarError("");
     setPassword("");
     setLoginError(nextLoginError);
     setAuthViewMode(nextLoginError ? "login" : "landing");
@@ -1371,6 +2066,28 @@ export default function App() {
     [accessToken, clearSession, refreshToken],
   );
 
+  const registerPushNotifications = useCallback(async () => {
+    if (!accessToken) {
+      return;
+    }
+
+    try {
+      const result = await registerPushTokenAfterLogin(accessToken);
+      if (result.registered) {
+        setPushToken(result.token);
+        setPushStatusMessage("通知登録済み");
+      } else if (result.reason === "expo-go") {
+        setPushStatusMessage("Expo Goでは通知登録をスキップします");
+      } else if (result.reason === "permission-denied") {
+        setPushStatusMessage("通知許可がオフです");
+      } else {
+        setPushStatusMessage("通知登録に失敗しました");
+      }
+    } catch {
+      setPushStatusMessage("通知登録に失敗しました");
+    }
+  }, [accessToken]);
+
   const loadPosts = useCallback(
     async (nextRefreshing = false) => {
       if (nextRefreshing) {
@@ -1405,6 +2122,70 @@ export default function App() {
       } finally {
         setLoading(false);
         setRefreshing(false);
+      }
+    },
+    [handleAuthError, withAuthRetry],
+  );
+
+  const loadAllTodos = useCallback(
+    async (nextRefreshing = false) => {
+      if (nextRefreshing) {
+        setAllTodosRefreshing(true);
+      } else {
+        setAllTodosLoading(true);
+      }
+
+      setAllTodosError("");
+
+      try {
+        const todos = await withAuthRetry((token) => fetchMobileAllTodos(token));
+        setAllTodos(todos);
+      } catch (caughtError) {
+        if (await handleAuthError(caughtError)) {
+          return;
+        }
+
+        setAllTodosError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Todo一覧の取得に失敗しました。",
+        );
+      } finally {
+        setAllTodosLoading(false);
+        setAllTodosRefreshing(false);
+      }
+    },
+    [handleAuthError, withAuthRetry],
+  );
+
+  const loadCalendarTodos = useCallback(
+    async (nextRefreshing = false) => {
+      if (nextRefreshing) {
+        setCalendarRefreshing(true);
+      } else {
+        setCalendarLoading(true);
+      }
+
+      setCalendarError("");
+
+      try {
+        const todos = await withAuthRetry((token) =>
+          fetchMobileTodoCalendar(token),
+        );
+        setCalendarTodos(todos);
+      } catch (caughtError) {
+        if (await handleAuthError(caughtError)) {
+          return;
+        }
+
+        setCalendarError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Todoカレンダーの取得に失敗しました。",
+        );
+      } finally {
+        setCalendarLoading(false);
+        setCalendarRefreshing(false);
       }
     },
     [handleAuthError, withAuthRetry],
@@ -1448,6 +2229,30 @@ export default function App() {
     loadPosts();
   }, [accessToken, loadPosts]);
 
+  useEffect(() => {
+    if (!accessToken) {
+      return;
+    }
+
+    void registerPushNotifications();
+  }, [accessToken, registerPushNotifications]);
+
+  useEffect(() => {
+    if (!accessToken || viewMode !== "todos") {
+      return;
+    }
+
+    void loadAllTodos();
+  }, [accessToken, loadAllTodos, viewMode]);
+
+  useEffect(() => {
+    if (!accessToken || viewMode !== "calendar") {
+      return;
+    }
+
+    void loadCalendarTodos();
+  }, [accessToken, loadCalendarTodos, viewMode]);
+
   const handleLogin = useCallback(async () => {
     const nextEmail = email.trim();
 
@@ -1487,12 +2292,43 @@ export default function App() {
   }, [accessToken, loadPosts]);
 
   const handleLogout = useCallback(async () => {
+    if (accessToken && pushToken) {
+      await revokeMobilePushSubscription(accessToken, pushToken).catch(() => null);
+    }
+
     if (refreshToken) {
       await logoutMobileSession(refreshToken).catch(() => null);
     }
 
     await clearSession();
-  }, [clearSession, refreshToken]);
+  }, [accessToken, clearSession, pushToken, refreshToken]);
+
+  const handleSendTestPush = useCallback(async () => {
+    if (!accessToken) {
+      setLoginError("ログインが必要です。");
+      return;
+    }
+
+    setPushTestLoading(true);
+    setPushStatusMessage("");
+
+    try {
+      await withAuthRetry((token) => sendMobileTestPush(token));
+      setPushStatusMessage("テスト通知を送信しました");
+    } catch (caughtError) {
+      if (await handleAuthError(caughtError)) {
+        return;
+      }
+
+      setPushStatusMessage(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "テスト通知の送信に失敗しました",
+      );
+    } finally {
+      setPushTestLoading(false);
+    }
+  }, [accessToken, handleAuthError, withAuthRetry]);
 
   const performDeleteAccount = useCallback(async () => {
     if (!accessToken) {
@@ -1569,6 +2405,14 @@ export default function App() {
     void Linking.openURL(`${API_BASE_URL}/register`);
   }, []);
 
+  const navigateMainTab = useCallback((tab: MainTab) => {
+    setDetailError("");
+    setFormError("");
+    setTodoError("");
+    setAccountDeleteError("");
+    setViewMode(tab);
+  }, []);
+
   const openPostDetail = useCallback(
     async (post: MobilePost) => {
       if (!accessToken) {
@@ -1607,6 +2451,49 @@ export default function App() {
       }
     },
     [accessToken, handleAuthError, withAuthRetry],
+  );
+
+  const openPostDetailById = useCallback(
+    async (postId: number) => {
+      const cachedPost = posts.find((post) => post.id === postId);
+
+      if (cachedPost) {
+        await openPostDetail(cachedPost);
+        return;
+      }
+
+      if (!accessToken) {
+        setLoginError("ログインが必要です。");
+        return;
+      }
+
+      setSelectedPost(null);
+      setCopied(false);
+      setViewMode("detail");
+      setDetailLoading(true);
+      setDetailError("");
+
+      try {
+        const latestPost = await withAuthRetry((token) =>
+          fetchMobilePost(token, postId),
+        );
+        setSelectedPost(latestPost);
+        setPosts((currentPosts) => [latestPost, ...currentPosts]);
+      } catch (caughtError) {
+        if (await handleAuthError(caughtError)) {
+          return;
+        }
+
+        setDetailError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "メモ詳細の取得に失敗しました。",
+        );
+      } finally {
+        setDetailLoading(false);
+      }
+    },
+    [accessToken, handleAuthError, openPostDetail, posts, withAuthRetry],
   );
 
   const handleCreate = useCallback(() => {
@@ -2056,6 +2943,296 @@ export default function App() {
     [accessToken, handleAuthError, withAuthRetry],
   );
 
+  const syncPostTodoItems = useCallback(
+    (
+      postId: number,
+      updater: (todoItems: MobileTodoItem[]) => MobileTodoItem[],
+    ) => {
+      setSelectedPost((currentPost) =>
+        currentPost?.id === postId
+          ? {
+              ...currentPost,
+              todoItems: updater(currentPost.todoItems ?? []).sort(compareTodos),
+            }
+          : currentPost,
+      );
+      setPosts((currentPosts) =>
+        currentPosts.map((post) =>
+          post.id === postId
+            ? {
+                ...post,
+                todoItems: updater(post.todoItems ?? []).sort(compareTodos),
+              }
+            : post,
+        ),
+      );
+    },
+    [],
+  );
+
+  const syncCrossMemoTodo = useCallback(
+    (todoItem: MobileTodoItem, post: MobilePost, canEdit: boolean) => {
+      const nextTodo: MobileCrossMemoTodoItem = {
+        ...todoItem,
+        canEdit,
+        postTitle: post.title,
+      };
+      setAllTodos((currentTodos) => {
+        const exists = currentTodos.some((todo) => todo.id === nextTodo.id);
+        return (exists
+          ? currentTodos.map((todo) => (todo.id === nextTodo.id ? nextTodo : todo))
+          : [nextTodo, ...currentTodos]
+        ).sort(compareTodos);
+      });
+      setCalendarTodos((currentTodos) => {
+        if (!nextTodo.dueAt) {
+          return currentTodos.filter((todo) => todo.id !== nextTodo.id);
+        }
+
+        const exists = currentTodos.some((todo) => todo.id === nextTodo.id);
+        return (exists
+          ? currentTodos.map((todo) => (todo.id === nextTodo.id ? nextTodo : todo))
+          : [nextTodo, ...currentTodos]
+        ).sort(compareTodos);
+      });
+    },
+    [],
+  );
+
+  const removeCrossMemoTodo = useCallback((todoItemId: number) => {
+    setAllTodos((currentTodos) =>
+      currentTodos.filter((todo) => todo.id !== todoItemId),
+    );
+    setCalendarTodos((currentTodos) =>
+      currentTodos.filter((todo) => todo.id !== todoItemId),
+    );
+  }, []);
+
+  const handleCreateTodoItem = useCallback(
+    async (payload: { dueAt: string | null; reminderAt?: string | null; text: string }) => {
+      if (!accessToken || !selectedPost) {
+        setLoginError("ログインが必要です。");
+        return;
+      }
+
+      if (!selectedPostCanEdit) {
+        setTodoError("このメモを編集する権限がありません。");
+        return;
+      }
+
+      setTodoSavingId("new");
+      setTodoError("");
+
+      try {
+        const todoItem = await withAuthRetry((token) =>
+          createMobileTodoItem(token, selectedPost.id, payload),
+        );
+        syncPostTodoItems(selectedPost.id, (todoItems) => [...todoItems, todoItem]);
+        syncCrossMemoTodo(todoItem, selectedPost, true);
+      } catch (caughtError) {
+        if (await handleAuthError(caughtError)) {
+          return;
+        }
+
+        setTodoError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Todoの追加に失敗しました。",
+        );
+      } finally {
+        setTodoSavingId(null);
+      }
+    },
+    [
+      accessToken,
+      handleAuthError,
+      selectedPost,
+      selectedPostCanEdit,
+      syncCrossMemoTodo,
+      syncPostTodoItems,
+      withAuthRetry,
+    ],
+  );
+
+  const handleUpdateTodoItem = useCallback(
+    async (
+      todoItem: MobileTodoItem,
+      payload: {
+        completed?: boolean;
+        dueAt?: string | null;
+        reminderAt?: string | null;
+        text?: string;
+      },
+    ) => {
+      if (!accessToken || !selectedPost) {
+        setLoginError("ログインが必要です。");
+        return;
+      }
+
+      if (!selectedPostCanEdit) {
+        setTodoError("このメモを編集する権限がありません。");
+        return;
+      }
+
+      setTodoSavingId(todoItem.id);
+      setTodoError("");
+
+      try {
+        const updatedTodoItem = await withAuthRetry((token) =>
+          updateMobileTodoItem(token, selectedPost.id, todoItem.id, payload),
+        );
+        syncPostTodoItems(selectedPost.id, (todoItems) =>
+          todoItems.map((currentTodo) =>
+            currentTodo.id === updatedTodoItem.id ? updatedTodoItem : currentTodo,
+          ),
+        );
+        syncCrossMemoTodo(updatedTodoItem, selectedPost, true);
+      } catch (caughtError) {
+        if (await handleAuthError(caughtError)) {
+          return;
+        }
+
+        setTodoError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Todoの更新に失敗しました。",
+        );
+      } finally {
+        setTodoSavingId(null);
+      }
+    },
+    [
+      accessToken,
+      handleAuthError,
+      selectedPost,
+      selectedPostCanEdit,
+      syncCrossMemoTodo,
+      syncPostTodoItems,
+      withAuthRetry,
+    ],
+  );
+
+  const handleToggleTodoItem = useCallback(
+    (todoItem: MobileTodoItem) => {
+      void handleUpdateTodoItem(todoItem, { completed: !todoItem.completed });
+    },
+    [handleUpdateTodoItem],
+  );
+
+  const performDeleteTodoItem = useCallback(
+    async (todoItem: MobileTodoItem) => {
+      if (!accessToken || !selectedPost) {
+        setLoginError("ログインが必要です。");
+        return;
+      }
+
+      if (!selectedPostCanEdit) {
+        setTodoError("このメモを編集する権限がありません。");
+        return;
+      }
+
+      setTodoSavingId(todoItem.id);
+      setTodoError("");
+
+      try {
+        await withAuthRetry((token) =>
+          deleteMobileTodoItem(token, selectedPost.id, todoItem.id),
+        );
+        syncPostTodoItems(selectedPost.id, (todoItems) =>
+          todoItems.filter((currentTodo) => currentTodo.id !== todoItem.id),
+        );
+        removeCrossMemoTodo(todoItem.id);
+      } catch (caughtError) {
+        if (await handleAuthError(caughtError)) {
+          return;
+        }
+
+        setTodoError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Todoの削除に失敗しました。",
+        );
+      } finally {
+        setTodoSavingId(null);
+      }
+    },
+    [
+      accessToken,
+      handleAuthError,
+      removeCrossMemoTodo,
+      selectedPost,
+      selectedPostCanEdit,
+      syncPostTodoItems,
+      withAuthRetry,
+    ],
+  );
+
+  const confirmDeleteTodoItem = useCallback(
+    (todoItem: MobileTodoItem) => {
+      Alert.alert("Todoを削除しますか？", "削除したTodoは元に戻せません。", [
+        { style: "cancel", text: "キャンセル" },
+        {
+          onPress: () => {
+            void performDeleteTodoItem(todoItem);
+          },
+          style: "destructive",
+          text: "削除",
+        },
+      ]);
+    },
+    [performDeleteTodoItem],
+  );
+
+  const handleToggleCrossTodo = useCallback(
+    async (todoItem: MobileCrossMemoTodoItem) => {
+      if (!accessToken || !todoItem.canEdit) {
+        return;
+      }
+
+      setTodoSavingId(todoItem.id);
+      setAllTodosError("");
+      setCalendarError("");
+
+      try {
+        const updatedTodoItem = await withAuthRetry((token) =>
+          updateMobileTodoItem(token, todoItem.postId, todoItem.id, {
+            completed: !todoItem.completed,
+          }),
+        );
+        const nextTodo = { ...todoItem, ...updatedTodoItem };
+        setAllTodos((currentTodos) =>
+          currentTodos
+            .map((todo) => (todo.id === nextTodo.id ? nextTodo : todo))
+            .sort(compareTodos),
+        );
+        setCalendarTodos((currentTodos) =>
+          currentTodos
+            .map((todo) => (todo.id === nextTodo.id ? nextTodo : todo))
+            .sort(compareTodos),
+        );
+        syncPostTodoItems(todoItem.postId, (todoItems) =>
+          todoItems.map((currentTodo) =>
+            currentTodo.id === updatedTodoItem.id ? updatedTodoItem : currentTodo,
+          ),
+        );
+      } catch (caughtError) {
+        if (await handleAuthError(caughtError)) {
+          return;
+        }
+
+        const message =
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Todoの更新に失敗しました。";
+        setAllTodosError(message);
+        setCalendarError(message);
+      } finally {
+        setTodoSavingId(null);
+      }
+    },
+    [accessToken, handleAuthError, syncPostTodoItems, withAuthRetry],
+  );
+
   const performDelete = useCallback(async () => {
     if (!accessToken || !selectedPost) {
       setLoginError("ログインが必要です。");
@@ -2145,6 +3322,47 @@ export default function App() {
         return new Date(right).getTime() - new Date(left).getTime();
       });
   }, [posts, query, selectedFilter, sortMode]);
+  const visibleAllTodos = useMemo(
+    () => allTodos.filter((todo) => matchesTodoFilter(todo, todoFilter)).sort(compareTodos),
+    [allTodos, todoFilter],
+  );
+  const calendarGroups = useMemo(() => {
+    const dueTodos = calendarTodos
+      .filter((todo) => todo.dueAt)
+      .sort(compareTodos);
+    const groups = new Map<string, MobileCrossMemoTodoItem[]>();
+
+    for (const todo of dueTodos) {
+      if (!todo.dueAt) continue;
+      const key = getCalendarDateKey(todo.dueAt);
+      groups.set(key, [...(groups.get(key) ?? []), todo]);
+    }
+
+    return Array.from(groups.entries()).map(([dateKey, todos]) => ({
+      dateKey,
+      label: calendarDateFormatter.format(new Date(todos[0]?.dueAt ?? dateKey)),
+      todos,
+    }));
+  }, [calendarTodos]);
+  const todoSummaryCounts = useMemo(
+    () => ({
+      active: allTodos.filter((todo) => !todo.completed).length,
+      completed: allTodos.filter((todo) => todo.completed).length,
+      overdue: allTodos.filter(isTodoOverdue).length,
+    }),
+    [allTodos],
+  );
+  const calendarQuickCounts = useMemo(
+    () => ({
+      today: calendarTodos.filter((todo) => isSameLocalDay(todo.dueAt, new Date())).length,
+      tomorrow: calendarTodos.filter((todo) =>
+        isSameLocalDay(todo.dueAt, addLocalDays(new Date(), 1)),
+      ).length,
+      week: calendarTodos.filter(isTodoDueThisWeek).length,
+      overdue: calendarTodos.filter(isTodoOverdue).length,
+    }),
+    [calendarTodos],
+  );
   const publishedCount = posts.filter((post) => post.published).length;
   const privateCount = posts.filter((post) => !post.published).length;
   const myMemoCount = posts.filter((post) => post.accessRole === "owner").length;
@@ -2156,11 +3374,6 @@ export default function App() {
     "すべて";
   const selectedSortLabel =
     sortOptions.find((option) => option.value === sortMode)?.label ?? "更新日";
-  const selectedPostCanEdit =
-    selectedPost?.accessRole === "owner" || selectedPost?.accessRole === "editor";
-  const selectedPostCanDelete = selectedPost?.accessRole === "owner";
-  const selectedPostCanManageShares = selectedPost?.accessRole === "owner";
-
   if (restoringToken) {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -2318,6 +3531,18 @@ export default function App() {
             <Text style={styles.accountSettingsText}>
               この端末に保存されたログイン情報を削除してログアウトします。
             </Text>
+            <Text style={styles.accountSettingsText}>
+              通知: {pushStatusMessage || "未確認"}
+            </Text>
+            <Button
+              disabled={pushTestLoading}
+              loading={pushTestLoading}
+              onPress={handleSendTestPush}
+              style={styles.fullButton}
+              variant="secondary"
+            >
+              テスト通知を送る
+            </Button>
             <Button
               onPress={handleLogout}
               style={styles.fullButton}
@@ -2357,6 +3582,7 @@ export default function App() {
             </Button>
           </Card>
         </ScrollView>
+        <MainTabBar activeTab="account" onNavigate={navigateMainTab} />
       </SafeAreaView>
     );
   }
@@ -2410,6 +3636,191 @@ export default function App() {
           saving={shareSaving}
           shares={postShares}
         />
+      </SafeAreaView>
+    );
+  }
+
+  if (viewMode === "todos") {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" />
+        <View style={styles.screen}>
+          <View style={styles.header}>
+            <View>
+              <Text style={styles.kicker}>Todos</Text>
+              <Text style={styles.title}>Todo一覧</Text>
+              <Text style={styles.postsSummary}>
+                未完了 {todoSummaryCounts.active}件 / 期限切れ {todoSummaryCounts.overdue}件 / 完了済み {todoSummaryCounts.completed}件
+              </Text>
+            </View>
+          </View>
+
+          <Card style={[styles.postsControls, styles.flatSurface]}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filterChipScroll}
+            >
+              {todoFilters.map((filter) => (
+                <Pressable
+                  accessibilityRole="button"
+                  key={filter.value}
+                  onPress={() => setTodoFilter(filter.value)}
+                  style={[
+                    styles.filterChip,
+                    todoFilter === filter.value ? styles.filterChipActive : undefined,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      todoFilter === filter.value
+                        ? styles.filterChipTextActive
+                        : undefined,
+                    ]}
+                  >
+                    {filter.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </Card>
+
+          {allTodosLoading ? (
+            <View style={styles.centerState}>
+              <ActivityIndicator color="#2563eb" size="large" />
+              <Text style={styles.stateText}>Todoを読み込んでいます</Text>
+            </View>
+          ) : allTodosError ? (
+            <View style={styles.centerState}>
+              <Text style={styles.errorTitle}>取得できませんでした</Text>
+              <Text style={styles.errorText}>{allTodosError}</Text>
+              <Button
+                onPress={() => loadAllTodos()}
+                style={styles.retryButton}
+                variant="secondary"
+              >
+                再試行
+              </Button>
+            </View>
+          ) : visibleAllTodos.length === 0 ? (
+            <View style={styles.centerState}>
+              <Text style={styles.emptyTitle}>Todoはありません</Text>
+              <Text style={styles.emptyText}>
+                メモ詳細から普通のTodoや期限付きTodoを追加できます。
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              contentContainerStyle={styles.todoListContent}
+              data={visibleAllTodos}
+              keyExtractor={(item) => String(item.id)}
+              onRefresh={() => loadAllTodos(true)}
+              refreshing={allTodosRefreshing}
+              renderItem={({ item }) => (
+                <TodoItemRow
+                  canEdit={item.canEdit}
+                  onPress={() => {
+                    void openPostDetailById(item.postId);
+                  }}
+                  onToggle={() => {
+                    void handleToggleCrossTodo(item);
+                  }}
+                  postTitle={item.postTitle}
+                  saving={todoSavingId === item.id}
+                  todo={item}
+                />
+              )}
+            />
+          )}
+        </View>
+        <MainTabBar activeTab="todos" onNavigate={navigateMainTab} />
+      </SafeAreaView>
+    );
+  }
+
+  if (viewMode === "calendar") {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" />
+        <View style={styles.screen}>
+          <View style={styles.header}>
+            <View>
+              <Text style={styles.kicker}>Calendar</Text>
+              <Text style={styles.title}>カレンダー</Text>
+              <Text style={styles.postsSummary}>
+                今日 {calendarQuickCounts.today}件 / 明日 {calendarQuickCounts.tomorrow}件 / 今週 {calendarQuickCounts.week}件 / 期限切れ {calendarQuickCounts.overdue}件
+              </Text>
+            </View>
+          </View>
+
+          <Card style={[styles.calendarQuickPanel, styles.flatSurface]}>
+            <View style={styles.calendarQuickRow}>
+              <Text style={styles.activeFilterChip}>今日 {calendarQuickCounts.today}</Text>
+              <Text style={styles.activeFilterChip}>明日 {calendarQuickCounts.tomorrow}</Text>
+              <Text style={styles.activeFilterChip}>今週 {calendarQuickCounts.week}</Text>
+              <Text style={styles.activeFilterChip}>期限切れ {calendarQuickCounts.overdue}</Text>
+            </View>
+          </Card>
+
+          {calendarLoading ? (
+            <View style={styles.centerState}>
+              <ActivityIndicator color="#2563eb" size="large" />
+              <Text style={styles.stateText}>カレンダーを読み込んでいます</Text>
+            </View>
+          ) : calendarError ? (
+            <View style={styles.centerState}>
+              <Text style={styles.errorTitle}>取得できませんでした</Text>
+              <Text style={styles.errorText}>{calendarError}</Text>
+              <Button
+                onPress={() => loadCalendarTodos()}
+                style={styles.retryButton}
+                variant="secondary"
+              >
+                再試行
+              </Button>
+            </View>
+          ) : calendarGroups.length === 0 ? (
+            <View style={styles.centerState}>
+              <Text style={styles.emptyTitle}>期限付きTodoはありません</Text>
+              <Text style={styles.emptyText}>
+                メモ詳細で期限付きTodoを追加すると日付別に表示されます。
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              contentContainerStyle={styles.todoListContent}
+              data={calendarGroups}
+              keyExtractor={(item) => item.dateKey}
+              onRefresh={() => loadCalendarTodos(true)}
+              refreshing={calendarRefreshing}
+              renderItem={({ item }) => (
+                <View style={styles.calendarGroup}>
+                  <View style={styles.calendarGroupHeader}>
+                    <Text style={styles.calendarGroupTitle}>{item.label}</Text>
+                    <Text style={styles.calendarGroupCount}>{item.todos.length}件</Text>
+                  </View>
+                  {item.todos.map((todo) => (
+                    <TodoItemRow
+                      canEdit={todo.canEdit}
+                      key={todo.id}
+                      onPress={() => {
+                        void openPostDetailById(todo.postId);
+                      }}
+                      onToggle={() => {
+                        void handleToggleCrossTodo(todo);
+                      }}
+                      postTitle={todo.postTitle}
+                      saving={todoSavingId === todo.id}
+                      todo={todo}
+                    />
+                  ))}
+                </View>
+              )}
+            />
+          )}
+        </View>
+        <MainTabBar activeTab="calendar" onNavigate={navigateMainTab} />
       </SafeAreaView>
     );
   }
@@ -2530,6 +3941,21 @@ export default function App() {
 
               <TodoContentDisplay content={selectedPost.content} />
 
+              <TodoItemsPanel
+                canEdit={selectedPostCanEdit}
+                error={todoError}
+                onCreate={(payload) => {
+                  void handleCreateTodoItem(payload);
+                }}
+                onDelete={confirmDeleteTodoItem}
+                onToggle={handleToggleTodoItem}
+                onUpdate={(todo, payload) => {
+                  void handleUpdateTodoItem(todo, payload);
+                }}
+                savingId={todoSavingId}
+                todoItems={selectedPost.todoItems ?? []}
+              />
+
               <View style={[styles.tagRow, styles.detailTagRow]}>
                 {selectedPost.tags.length > 0 ? (
                   selectedPost.tags.map((tag) => (
@@ -2585,13 +4011,21 @@ export default function App() {
           </Button>
           <Button
             onPress={() => {
-              setAccountDeleteError("");
-              setViewMode("account");
+              navigateMainTab("todos");
             }}
             style={styles.toolbarButton}
             variant="secondary"
           >
-            アカウント
+            Todo一覧
+          </Button>
+          <Button
+            onPress={() => {
+              navigateMainTab("calendar");
+            }}
+            style={styles.toolbarButton}
+            variant="secondary"
+          >
+            カレンダー
           </Button>
         </Card>
 
@@ -2759,6 +4193,7 @@ export default function App() {
           />
         )}
       </View>
+      <MainTabBar activeTab="list" onNavigate={navigateMainTab} />
     </SafeAreaView>
   );
 }
@@ -2788,6 +4223,37 @@ const styles = StyleSheet.create({
     elevation: 0,
     shadowOpacity: 0,
     shadowRadius: 0,
+  },
+  mainTabBar: {
+    backgroundColor: colors.surfaceStrong,
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    paddingBottom: Platform.OS === "ios" ? 18 : 10,
+    paddingHorizontal: 10,
+    paddingTop: 10,
+  },
+  mainTabButton: {
+    alignItems: "center",
+    borderColor: "transparent",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  mainTabButtonActive: {
+    backgroundColor: colors.text,
+    borderColor: colors.text,
+  },
+  mainTabText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  mainTabTextActive: {
+    color: colors.white,
   },
   loginScrollContent: {
     flexGrow: 1,
@@ -3281,6 +4747,38 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: 32,
   },
+  todoListContent: {
+    gap: 12,
+    paddingBottom: 110,
+  },
+  calendarQuickPanel: {
+    marginBottom: 14,
+    padding: 12,
+  },
+  calendarQuickRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  calendarGroup: {
+    gap: 10,
+  },
+  calendarGroupHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 2,
+  },
+  calendarGroupTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  calendarGroupCount: {
+    color: colors.textSoft,
+    fontSize: 12,
+    fontWeight: "900",
+  },
   memoCard: {
     marginBottom: 12,
     minHeight: 224,
@@ -3520,6 +5018,145 @@ const styles = StyleSheet.create({
   todoTextChecked: {
     color: colors.textSoft,
     textDecorationLine: "line-through",
+  },
+  modelTodoPanel: {
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    gap: 14,
+    paddingHorizontal: 22,
+    paddingVertical: 24,
+  },
+  modelTodoHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
+  },
+  modelTodoTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "900",
+    lineHeight: 26,
+    marginTop: 4,
+  },
+  modelTodoForm: {
+    gap: 12,
+    padding: 14,
+  },
+  todoKindRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  modelTodoList: {
+    gap: 10,
+  },
+  modelTodoRow: {
+    backgroundColor: colors.surfaceStrong,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: 10,
+    padding: 12,
+  },
+  modelTodoRowCompleted: {
+    opacity: 0.62,
+  },
+  modelTodoRowOverdue: {
+    backgroundColor: colors.dangerSoft,
+    borderColor: "rgba(220, 38, 38, 0.28)",
+  },
+  modelTodoMain: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 8,
+  },
+  modelTodoCheckButton: {
+    alignItems: "center",
+    height: 34,
+    justifyContent: "center",
+    width: 28,
+  },
+  modelTodoTextBlock: {
+    flex: 1,
+    gap: 7,
+  },
+  modelTodoText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "800",
+    lineHeight: 23,
+  },
+  modelTodoMetaRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  modelTodoMeta: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radius.pill,
+    color: colors.textSoft,
+    fontSize: 11,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  modelTodoMetaOverdue: {
+    backgroundColor: "rgba(220, 38, 38, 0.1)",
+    color: colors.danger,
+  },
+  modelTodoActions: {
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "flex-end",
+  },
+  modelTodoActionButton: {
+    minHeight: 36,
+    minWidth: 66,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  modelTodoEditCard: {
+    gap: 12,
+    padding: 14,
+  },
+  modelTodoEditActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  modelTodoEmpty: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 22,
+  },
+  memoTodoSummary: {
+    backgroundColor: "rgba(248, 250, 252, 0.82)",
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    gap: 8,
+    paddingHorizontal: 22,
+    paddingVertical: 16,
+  },
+  memoTodoSummaryRow: {
+    backgroundColor: colors.surfaceStrong,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: 4,
+    padding: 10,
+  },
+  memoTodoSummaryText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20,
+  },
+  memoTodoSummaryMeta: {
+    color: colors.textSoft,
+    fontSize: 12,
+    fontWeight: "900",
   },
   editorTopbar: {
     alignItems: "flex-start",

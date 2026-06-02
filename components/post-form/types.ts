@@ -9,6 +9,8 @@ export type PostFormTodoItem = {
   dueAt: string | null;
   id: number;
   position: number;
+  reminderAt: string | null;
+  reminderSentAt: string | null;
   text: string;
 };
 

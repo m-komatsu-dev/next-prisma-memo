@@ -69,7 +69,7 @@ export async function GET(request: Request, { params }: MobileTodoItemsRouteCont
 
     return withMobileCors(
       request,
-      NextResponse.json({ todoItems: todoItems.map(serializeTodoItem) }),
+      NextResponse.json({ todos: todoItems.map(serializeTodoItem) }),
     );
   } catch (error) {
     logServerError(error, {
@@ -160,6 +160,7 @@ export async function POST(request: Request, { params }: MobileTodoItemsRouteCon
       return tx.todoItem.create({
         data: {
           dueAt: payload.dueAt,
+          reminderAt: payload.reminderAt,
           position: (lastTodo?.position ?? -1) + 1,
           postId: post.id,
           text: payload.text,
@@ -179,7 +180,7 @@ export async function POST(request: Request, { params }: MobileTodoItemsRouteCon
 
     return withMobileCors(
       request,
-      NextResponse.json({ todoItem: serializeTodoItem(todoItem) }),
+      NextResponse.json({ todo: serializeTodoItem(todoItem) }),
     );
   } catch (error) {
     logServerError(error, {

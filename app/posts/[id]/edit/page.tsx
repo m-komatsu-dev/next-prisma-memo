@@ -59,6 +59,8 @@ export default async function EditPost({ params }: { params: Promise<{ id: strin
             dueAt: todoItem.dueAt?.toISOString() ?? null,
             id: todoItem.id,
             position: todoItem.position,
+            reminderAt: todoItem.reminderAt?.toISOString() ?? null,
+            reminderSentAt: todoItem.reminderSentAt?.toISOString() ?? null,
             text: todoItem.text,
           })),
         }}
