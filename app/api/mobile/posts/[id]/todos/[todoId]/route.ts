@@ -132,7 +132,7 @@ export async function PATCH(request: Request, { params }: MobileTodoItemRouteCon
 
     return withMobileCors(
       request,
-      NextResponse.json({ todoItem: serializeTodoItem(todoItem) }),
+      NextResponse.json({ todo: serializeTodoItem(todoItem) }),
     );
   } catch (error) {
     logServerError(error, {

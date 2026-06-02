@@ -1,16 +1,34 @@
 import Constants from "expo-constants";
-import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 import { registerMobilePushSubscription } from "../api/push-subscriptions";
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+type NotificationsModule = typeof import("expo-notifications");
+type PushRegistrationResult =
+  | { registered: true; token: string }
+  | {
+      registered: false;
+      reason: "expo-go" | "permission-denied" | "registration-failed";
+    };
+
+let notificationHandlerConfigured = false;
+
+async function loadNotifications() {
+  const Notifications = await import("expo-notifications");
+
+  if (!notificationHandlerConfigured) {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+        shouldShowBanner: true,
+        shouldShowList: true,
+      }),
+    });
+    notificationHandlerConfigured = true;
+  }
+
+  return Notifications;
+}
 
 function getProjectId() {
   return (
@@ -28,7 +46,7 @@ function getPushPlatform() {
   return "unknown";
 }
 
-export async function registerPushTokenAfterLogin(accessToken: string) {
+async function configureAndroidChannel(Notifications: NotificationsModule) {
   if (Platform.OS === "android") {
     await Notifications.setNotificationChannelAsync("todo-reminders", {
       importance: Notifications.AndroidImportance.DEFAULT,
@@ -36,27 +54,43 @@ export async function registerPushTokenAfterLogin(accessToken: string) {
       sound: "default",
     });
   }
+}
 
-  const currentPermissions = await Notifications.getPermissionsAsync();
-  const finalPermissions =
-    currentPermissions.status === "granted"
-      ? currentPermissions
-      : await Notifications.requestPermissionsAsync();
-
-  if (finalPermissions.status !== "granted") {
-    return { registered: false, reason: "permission-denied" as const };
+export async function registerPushTokenAfterLogin(
+  accessToken: string,
+): Promise<PushRegistrationResult> {
+  if (Constants.appOwnership === "expo") {
+    return { registered: false, reason: "expo-go" };
   }
 
-  const projectId = getProjectId();
-  const tokenResult = await Notifications.getExpoPushTokenAsync(
-    projectId ? { projectId } : undefined,
-  );
+  try {
+    const Notifications = await loadNotifications();
 
-  await registerMobilePushSubscription(accessToken, {
-    deviceName: Constants.deviceName ?? null,
-    expoPushToken: tokenResult.data,
-    platform: getPushPlatform(),
-  });
+    await configureAndroidChannel(Notifications);
 
-  return { registered: true, token: tokenResult.data };
+    const currentPermissions = await Notifications.getPermissionsAsync();
+    const finalPermissions =
+      currentPermissions.status === "granted"
+        ? currentPermissions
+        : await Notifications.requestPermissionsAsync();
+
+    if (finalPermissions.status !== "granted") {
+      return { registered: false, reason: "permission-denied" };
+    }
+
+    const projectId = getProjectId();
+    const tokenResult = await Notifications.getExpoPushTokenAsync(
+      projectId ? { projectId } : undefined,
+    );
+
+    await registerMobilePushSubscription(accessToken, {
+      deviceName: Constants.deviceName ?? null,
+      expoPushToken: tokenResult.data,
+      platform: getPushPlatform(),
+    });
+
+    return { registered: true, token: tokenResult.data };
+  } catch {
+    return { registered: false, reason: "registration-failed" };
+  }
 }

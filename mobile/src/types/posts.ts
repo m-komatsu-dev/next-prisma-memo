@@ -57,11 +57,11 @@ export type MobileTodoItemPayload = {
 };
 
 export type MobileTodoItemsResponse = {
-  todoItems: MobileTodoItem[];
+  todos: MobileTodoItem[];
 };
 
 export type MobileTodoItemResponse = {
-  todoItem: MobileTodoItem;
+  todo: MobileTodoItem;
 };
 
 export type MobileCrossMemoTodoItemsResponse = {

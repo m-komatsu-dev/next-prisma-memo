@@ -2073,11 +2073,15 @@ export default function App() {
 
     try {
       const result = await registerPushTokenAfterLogin(accessToken);
-      if (result.registered && result.token) {
+      if (result.registered) {
         setPushToken(result.token);
         setPushStatusMessage("通知登録済み");
-      } else {
+      } else if (result.reason === "expo-go") {
+        setPushStatusMessage("Expo Goでは通知登録をスキップします");
+      } else if (result.reason === "permission-denied") {
         setPushStatusMessage("通知許可がオフです");
+      } else {
+        setPushStatusMessage("通知登録に失敗しました");
       }
     } catch {
       setPushStatusMessage("通知登録に失敗しました");
