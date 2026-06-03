@@ -94,6 +94,7 @@ type TodoFilter =
   | "overdue"
   | "noDue";
 type MainTab = "list" | "todos" | "calendar" | "account";
+type CalendarQuickFilter = "today" | "tomorrow" | "week" | "overdue";
 
 const AUTO_SAVE_DEBOUNCE_MS = 1500;
 
@@ -144,6 +145,13 @@ const todoFilters: { label: string; value: TodoFilter }[] = [
   { label: "期限なし", value: "noDue" },
 ];
 
+const calendarQuickFilters: { label: string; value: CalendarQuickFilter }[] = [
+  { label: "今日", value: "today" },
+  { label: "明日", value: "tomorrow" },
+  { label: "今週", value: "week" },
+  { label: "期限切れ", value: "overdue" },
+];
+
 const mainTabs: { label: string; value: MainTab }[] = [
   { label: "メモ", value: "list" },
   { label: "Todo", value: "todos" },
@@ -170,6 +178,13 @@ const calendarDateFormatter = new Intl.DateTimeFormat("ja-JP", {
   day: "2-digit",
   weekday: "short",
 });
+
+const calendarMonthFormatter = new Intl.DateTimeFormat("ja-JP", {
+  month: "long",
+  year: "numeric",
+});
+
+const calendarWeekdayLabels = ["日", "月", "火", "水", "木", "金", "土"];
 
 function formatUpdatedAt(value: string) {
   const date = new Date(value);
@@ -324,10 +339,46 @@ function getCalendarDateKey(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
 
+  return getLocalDateKey(date);
+}
+
+function getLocalDateKey(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function formatLocalDateKey(dateKey: string) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+
+  if (!year || !month || !day) {
+    return dateKey;
+  }
+
+  return calendarDateFormatter.format(new Date(year, month - 1, day));
+}
+
+function getMonthStart(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function addLocalMonths(date: Date, months: number) {
+  return new Date(date.getFullYear(), date.getMonth() + months, 1);
+}
+
+function getCalendarMonthCells(monthDate: Date) {
+  const monthStart = getMonthStart(monthDate);
+  const gridStart = addLocalDays(monthStart, -monthStart.getDay());
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = addLocalDays(gridStart, index);
+    return {
+      date,
+      dateKey: getLocalDateKey(date),
+      inCurrentMonth: date.getMonth() === monthStart.getMonth(),
+    };
+  });
 }
 
 function getPlainPreview(content: string) {
@@ -742,6 +793,141 @@ function TodoItemRow({
         </View>
       ) : null}
     </View>
+  );
+}
+
+function CalendarMonthGrid({
+  monthDate,
+  onMonthChange,
+  onSelectDate,
+  selectedDateKey,
+  todosByDate,
+}: {
+  monthDate: Date;
+  onMonthChange: (date: Date) => void;
+  onSelectDate: (dateKey: string) => void;
+  selectedDateKey: string;
+  todosByDate: Map<string, MobileCrossMemoTodoItem[]>;
+}) {
+  const todayKey = getLocalDateKey(new Date());
+  const monthCells = useMemo(() => getCalendarMonthCells(monthDate), [monthDate]);
+
+  return (
+    <Card style={[styles.calendarMonthPanel, styles.flatSurface]}>
+      <View style={styles.calendarMonthHeader}>
+        <Text style={styles.calendarMonthTitle}>
+          {calendarMonthFormatter.format(monthDate)}
+        </Text>
+        <View style={styles.calendarMonthActions}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => onMonthChange(addLocalMonths(monthDate, -1))}
+            style={({ pressed }) => [
+              styles.calendarMonthButton,
+              pressed ? styles.buttonPressed : undefined,
+            ]}
+          >
+            <Text style={styles.calendarMonthButtonText}>前の月</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              onMonthChange(getMonthStart(new Date()));
+              onSelectDate(todayKey);
+            }}
+            style={({ pressed }) => [
+              styles.calendarMonthButton,
+              pressed ? styles.buttonPressed : undefined,
+            ]}
+          >
+            <Text style={styles.calendarMonthButtonText}>今日</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => onMonthChange(addLocalMonths(monthDate, 1))}
+            style={({ pressed }) => [
+              styles.calendarMonthButton,
+              pressed ? styles.buttonPressed : undefined,
+            ]}
+          >
+            <Text style={styles.calendarMonthButtonText}>次の月</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      <View style={styles.calendarWeekdayRow}>
+        {calendarWeekdayLabels.map((label) => (
+          <Text key={label} style={styles.calendarWeekdayText}>
+            {label}
+          </Text>
+        ))}
+      </View>
+
+      <View style={styles.calendarDateGrid}>
+        {monthCells.map((cell) => {
+          const cellTodos = todosByDate.get(cell.dateKey) ?? [];
+          const visibleTodo = cellTodos[0];
+          const hasOverdue = cellTodos.some(isTodoOverdue);
+          const allCompleted =
+            cellTodos.length > 0 && cellTodos.every((todo) => todo.completed);
+          const isSelected = selectedDateKey === cell.dateKey;
+          const isToday = todayKey === cell.dateKey;
+
+          return (
+            <Pressable
+              accessibilityRole="button"
+              key={cell.dateKey}
+              onPress={() => onSelectDate(cell.dateKey)}
+              style={({ pressed }) => [
+                styles.calendarDateCell,
+                !cell.inCurrentMonth ? styles.calendarDateCellMuted : undefined,
+                isToday ? styles.calendarDateCellToday : undefined,
+                hasOverdue ? styles.calendarDateCellOverdue : undefined,
+                isSelected ? styles.calendarDateCellSelected : undefined,
+                allCompleted ? styles.calendarDateCellCompleted : undefined,
+                pressed ? styles.buttonPressed : undefined,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.calendarDateNumber,
+                  !cell.inCurrentMonth ? styles.calendarDateNumberMuted : undefined,
+                  isSelected ? styles.calendarDateNumberSelected : undefined,
+                ]}
+              >
+                {cell.date.getDate()}
+              </Text>
+              {cellTodos.length > 0 ? (
+                <>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.calendarDateCount,
+                      hasOverdue ? styles.calendarDateCountOverdue : undefined,
+                      isSelected ? styles.calendarDateCountSelected : undefined,
+                    ]}
+                  >
+                    {cellTodos.length}件
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.calendarDateTodoText,
+                      visibleTodo?.completed
+                        ? styles.calendarDateTodoTextCompleted
+                        : undefined,
+                      isSelected ? styles.calendarDateTodoTextSelected : undefined,
+                    ]}
+                  >
+                    {visibleTodo?.text}
+                  </Text>
+                </>
+              ) : null}
+            </Pressable>
+          );
+        })}
+      </View>
+    </Card>
   );
 }
 
@@ -1976,6 +2162,14 @@ export default function App() {
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [calendarRefreshing, setCalendarRefreshing] = useState(false);
   const [calendarError, setCalendarError] = useState("");
+  const [calendarMonthDate, setCalendarMonthDate] = useState(() =>
+    getMonthStart(new Date()),
+  );
+  const [selectedCalendarDateKey, setSelectedCalendarDateKey] = useState(() =>
+    getLocalDateKey(new Date()),
+  );
+  const [calendarQuickFilter, setCalendarQuickFilter] =
+    useState<CalendarQuickFilter | null>(null);
   const selectedPostCanEdit =
     selectedPost?.accessRole === "owner" || selectedPost?.accessRole === "editor";
   const selectedPostCanDelete = selectedPost?.accessRole === "owner";
@@ -2013,6 +2207,9 @@ export default function App() {
     setTodoFilter("all");
     setCalendarTodos([]);
     setCalendarError("");
+    setCalendarMonthDate(getMonthStart(new Date()));
+    setSelectedCalendarDateKey(getLocalDateKey(new Date()));
+    setCalendarQuickFilter(null);
     setPassword("");
     setLoginError(nextLoginError);
     setAuthViewMode(nextLoginError ? "login" : "landing");
@@ -3326,24 +3523,60 @@ export default function App() {
     () => allTodos.filter((todo) => matchesTodoFilter(todo, todoFilter)).sort(compareTodos),
     [allTodos, todoFilter],
   );
-  const calendarGroups = useMemo(() => {
-    const dueTodos = calendarTodos
-      .filter((todo) => todo.dueAt)
-      .sort(compareTodos);
+  const calendarTodosByDate = useMemo(() => {
     const groups = new Map<string, MobileCrossMemoTodoItem[]>();
 
-    for (const todo of dueTodos) {
+    for (const todo of calendarTodos.filter((item) => item.dueAt).sort(compareTodos)) {
       if (!todo.dueAt) continue;
       const key = getCalendarDateKey(todo.dueAt);
       groups.set(key, [...(groups.get(key) ?? []), todo]);
     }
 
-    return Array.from(groups.entries()).map(([dateKey, todos]) => ({
-      dateKey,
-      label: calendarDateFormatter.format(new Date(todos[0]?.dueAt ?? dateKey)),
-      todos,
-    }));
+    return groups;
   }, [calendarTodos]);
+  const selectedCalendarTodos = useMemo(() => {
+    if (calendarQuickFilter === "today") {
+      return calendarTodos
+        .filter((todo) => isSameLocalDay(todo.dueAt, new Date()))
+        .sort(compareTodos);
+    }
+
+    if (calendarQuickFilter === "tomorrow") {
+      return calendarTodos
+        .filter((todo) => isSameLocalDay(todo.dueAt, addLocalDays(new Date(), 1)))
+        .sort(compareTodos);
+    }
+
+    if (calendarQuickFilter === "week") {
+      return calendarTodos.filter(isTodoDueThisWeek).sort(compareTodos);
+    }
+
+    if (calendarQuickFilter === "overdue") {
+      return calendarTodos.filter(isTodoOverdue).sort(compareTodos);
+    }
+
+    return (calendarTodosByDate.get(selectedCalendarDateKey) ?? []).sort(compareTodos);
+  }, [
+    calendarQuickFilter,
+    calendarTodos,
+    calendarTodosByDate,
+    selectedCalendarDateKey,
+  ]);
+  const selectedCalendarListLabel = useMemo(() => {
+    if (calendarQuickFilter) {
+      return (
+        calendarQuickFilters.find((filter) => filter.value === calendarQuickFilter)
+          ?.label ?? "Todo"
+      );
+    }
+
+    const selectedTodo = selectedCalendarTodos[0];
+    if (selectedTodo?.dueAt) {
+      return calendarDateFormatter.format(new Date(selectedTodo.dueAt));
+    }
+
+    return formatLocalDateKey(selectedCalendarDateKey);
+  }, [calendarQuickFilter, selectedCalendarDateKey, selectedCalendarTodos]);
   const todoSummaryCounts = useMemo(
     () => ({
       active: allTodos.filter((todo) => !todo.completed).length,
@@ -3740,11 +3973,15 @@ export default function App() {
   }
 
   if (viewMode === "calendar") {
+    const calendarListEmptyText = calendarQuickFilter
+      ? `${selectedCalendarListLabel}の期限付きTodoはありません。`
+      : "この日の期限付きTodoはありません。";
+
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="dark-content" />
         <View style={styles.screen}>
-          <View style={styles.header}>
+          <View style={styles.compactHeader}>
             <View>
               <Text style={styles.kicker}>Calendar</Text>
               <Text style={styles.title}>カレンダー</Text>
@@ -3753,15 +3990,6 @@ export default function App() {
               </Text>
             </View>
           </View>
-
-          <Card style={[styles.calendarQuickPanel, styles.flatSurface]}>
-            <View style={styles.calendarQuickRow}>
-              <Text style={styles.activeFilterChip}>今日 {calendarQuickCounts.today}</Text>
-              <Text style={styles.activeFilterChip}>明日 {calendarQuickCounts.tomorrow}</Text>
-              <Text style={styles.activeFilterChip}>今週 {calendarQuickCounts.week}</Text>
-              <Text style={styles.activeFilterChip}>期限切れ {calendarQuickCounts.overdue}</Text>
-            </View>
-          </Card>
 
           {calendarLoading ? (
             <View style={styles.centerState}>
@@ -3780,42 +4008,102 @@ export default function App() {
                 再試行
               </Button>
             </View>
-          ) : calendarGroups.length === 0 ? (
-            <View style={styles.centerState}>
-              <Text style={styles.emptyTitle}>期限付きTodoはありません</Text>
-              <Text style={styles.emptyText}>
-                メモ詳細で期限付きTodoを追加すると日付別に表示されます。
-              </Text>
-            </View>
           ) : (
             <FlatList
-              contentContainerStyle={styles.todoListContent}
-              data={calendarGroups}
-              keyExtractor={(item) => item.dateKey}
+              contentContainerStyle={styles.calendarListContent}
+              data={selectedCalendarTodos}
+              keyExtractor={(item) => String(item.id)}
+              ListEmptyComponent={
+                <View style={styles.calendarEmptySelection}>
+                  <Text style={styles.emptyTitle}>{calendarListEmptyText}</Text>
+                  <Text style={styles.emptyText}>
+                    メモ詳細で期限付きTodoを追加すると月カレンダーに表示されます。
+                  </Text>
+                </View>
+              }
+              ListHeaderComponent={
+                <View style={styles.calendarHeaderContent}>
+                  <Card style={[styles.calendarQuickPanel, styles.flatSurface]}>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.filterChipScroll}
+                    >
+                      {calendarQuickFilters.map((filter) => {
+                        const count = calendarQuickCounts[filter.value];
+
+                        return (
+                          <Pressable
+                            accessibilityRole="button"
+                            key={filter.value}
+                            onPress={() => {
+                              setCalendarQuickFilter((current) =>
+                                current === filter.value ? null : filter.value,
+                              );
+                            }}
+                            style={[
+                              styles.filterChip,
+                              calendarQuickFilter === filter.value
+                                ? styles.filterChipActive
+                                : undefined,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.filterChipText,
+                                calendarQuickFilter === filter.value
+                                  ? styles.filterChipTextActive
+                                  : undefined,
+                              ]}
+                            >
+                              {filter.label} {count}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                  </Card>
+
+                  <CalendarMonthGrid
+                    monthDate={calendarMonthDate}
+                    onMonthChange={setCalendarMonthDate}
+                    onSelectDate={(dateKey) => {
+                      setSelectedCalendarDateKey(dateKey);
+                      setCalendarQuickFilter(null);
+                      const [year, month] = dateKey.split("-").map(Number);
+                      if (year && month) {
+                        setCalendarMonthDate(new Date(year, month - 1, 1));
+                      }
+                    }}
+                    selectedDateKey={selectedCalendarDateKey}
+                    todosByDate={calendarTodosByDate}
+                  />
+
+                  <View style={styles.calendarSelectionHeader}>
+                    <Text style={styles.calendarSelectionTitle}>
+                      {selectedCalendarListLabel}
+                    </Text>
+                    <Text style={styles.calendarGroupCount}>
+                      {selectedCalendarTodos.length}件
+                    </Text>
+                  </View>
+                </View>
+              }
               onRefresh={() => loadCalendarTodos(true)}
               refreshing={calendarRefreshing}
               renderItem={({ item }) => (
-                <View style={styles.calendarGroup}>
-                  <View style={styles.calendarGroupHeader}>
-                    <Text style={styles.calendarGroupTitle}>{item.label}</Text>
-                    <Text style={styles.calendarGroupCount}>{item.todos.length}件</Text>
-                  </View>
-                  {item.todos.map((todo) => (
-                    <TodoItemRow
-                      canEdit={todo.canEdit}
-                      key={todo.id}
-                      onPress={() => {
-                        void openPostDetailById(todo.postId);
-                      }}
-                      onToggle={() => {
-                        void handleToggleCrossTodo(todo);
-                      }}
-                      postTitle={todo.postTitle}
-                      saving={todoSavingId === todo.id}
-                      todo={todo}
-                    />
-                  ))}
-                </View>
+                <TodoItemRow
+                  canEdit={item.canEdit}
+                  onPress={() => {
+                    void openPostDetailById(item.postId);
+                  }}
+                  onToggle={() => {
+                    void handleToggleCrossTodo(item);
+                  }}
+                  postTitle={item.postTitle}
+                  saving={todoSavingId === item.id}
+                  todo={item}
+                />
               )}
             />
           )}
@@ -3985,49 +4273,20 @@ export default function App() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
       <View style={styles.screen}>
-        <View style={styles.header}>
+        <View style={styles.compactHeader}>
           <View>
             <Text style={styles.kicker}>Memo workspace</Text>
-            <Text style={styles.title}>メモ一覧</Text>
+            <View style={styles.listTitleRow}>
+              <Text style={styles.title}>メモ一覧</Text>
+              <Button onPress={handleCreate} style={styles.createMemoButton}>
+                新規作成
+              </Button>
+            </View>
             <Text style={styles.postsSummary}>
               {posts.length}件 / 自分 {myMemoCount}件 / 共有 {sharedCount}件 / 公開 {publishedCount}件 / 非公開 {privateCount}件
             </Text>
           </View>
         </View>
-
-        <Card style={styles.listToolbar}>
-          <Button
-            onPress={handleCreate}
-            style={styles.toolbarButton}
-          >
-            新規作成
-          </Button>
-          <Button
-            onPress={handleRefresh}
-            style={styles.toolbarButton}
-            variant="secondary"
-          >
-            更新
-          </Button>
-          <Button
-            onPress={() => {
-              navigateMainTab("todos");
-            }}
-            style={styles.toolbarButton}
-            variant="secondary"
-          >
-            Todo一覧
-          </Button>
-          <Button
-            onPress={() => {
-              navigateMainTab("calendar");
-            }}
-            style={styles.toolbarButton}
-            variant="secondary"
-          >
-            カレンダー
-          </Button>
-        </Card>
 
         <Card style={[styles.postsControls, styles.flatSurface]}>
           <View style={styles.searchCompactRow}>
@@ -4418,6 +4677,9 @@ const styles = StyleSheet.create({
   header: {
     marginBottom: spacing.md,
   },
+  compactHeader: {
+    marginBottom: 10,
+  },
   kicker: {
     ...typography.eyebrow,
   },
@@ -4425,11 +4687,25 @@ const styles = StyleSheet.create({
     ...typography.screenTitle,
     marginTop: 6,
   },
+  listTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
+    marginTop: 2,
+  },
+  createMemoButton: {
+    minHeight: 38,
+    minWidth: 94,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
   postsSummary: {
     color: colors.textMuted,
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "700",
-    marginTop: 8,
+    lineHeight: 18,
+    marginTop: 6,
   },
   listToolbar: {
     flexDirection: "row",
@@ -4752,13 +5028,151 @@ const styles = StyleSheet.create({
     paddingBottom: 110,
   },
   calendarQuickPanel: {
-    marginBottom: 14,
-    padding: 12,
+    marginBottom: 10,
+    padding: 10,
   },
   calendarQuickRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
+  },
+  calendarHeaderContent: {
+    gap: 10,
+    marginBottom: 10,
+  },
+  calendarListContent: {
+    gap: 10,
+    paddingBottom: 110,
+  },
+  calendarMonthPanel: {
+    backgroundColor: "rgba(255, 255, 255, 0.82)",
+    padding: 10,
+  },
+  calendarMonthHeader: {
+    gap: 10,
+    marginBottom: 10,
+  },
+  calendarMonthTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  calendarMonthActions: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  calendarMonthButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceStrong,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 32,
+    paddingHorizontal: 6,
+  },
+  calendarMonthButtonText: {
+    color: colors.text,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  calendarWeekdayRow: {
+    flexDirection: "row",
+    gap: 4,
+    marginBottom: 4,
+  },
+  calendarWeekdayText: {
+    color: colors.textSoft,
+    flex: 1,
+    fontSize: 11,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  calendarDateGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 4,
+  },
+  calendarDateCell: {
+    aspectRatio: 0.82,
+    backgroundColor: colors.surfaceStrong,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    padding: 5,
+    width: "13.26%",
+  },
+  calendarDateCellMuted: {
+    opacity: 0.42,
+  },
+  calendarDateCellToday: {
+    borderColor: colors.primaryStrong,
+    borderWidth: 2,
+  },
+  calendarDateCellSelected: {
+    backgroundColor: colors.text,
+    borderColor: colors.text,
+  },
+  calendarDateCellOverdue: {
+    backgroundColor: colors.dangerSoft,
+    borderColor: "rgba(220, 38, 38, 0.34)",
+  },
+  calendarDateCellCompleted: {
+    opacity: 0.58,
+  },
+  calendarDateNumber: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  calendarDateNumberMuted: {
+    color: colors.textSoft,
+  },
+  calendarDateNumberSelected: {
+    color: colors.white,
+  },
+  calendarDateCount: {
+    color: colors.primaryStrong,
+    fontSize: 10,
+    fontWeight: "900",
+    marginTop: 3,
+  },
+  calendarDateCountOverdue: {
+    color: colors.danger,
+  },
+  calendarDateCountSelected: {
+    color: colors.white,
+  },
+  calendarDateTodoText: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: "800",
+    marginTop: 2,
+  },
+  calendarDateTodoTextCompleted: {
+    color: colors.textSoft,
+    textDecorationLine: "line-through",
+  },
+  calendarDateTodoTextSelected: {
+    color: colors.white,
+  },
+  calendarSelectionHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 2,
+    paddingTop: 2,
+  },
+  calendarSelectionTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  calendarEmptySelection: {
+    alignItems: "center",
+    paddingHorizontal: 18,
+    paddingVertical: 24,
   },
   calendarGroup: {
     gap: 10,
