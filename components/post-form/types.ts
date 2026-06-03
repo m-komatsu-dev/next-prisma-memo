@@ -17,6 +17,7 @@ export type PostFormTodoItem = {
 export type PostFormProps = {
   mode: "new" | "edit";
   canChangePublished?: boolean;
+  creationKind?: "text" | "todo";
   initialPost?: {
     id: number;
     title: string;

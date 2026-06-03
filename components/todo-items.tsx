@@ -22,6 +22,7 @@ type TodoItemView = PostFormTodoItem;
 type TodoItemsPanelProps = {
   canEdit: boolean;
   embedded?: boolean;
+  forceDueTodo?: boolean;
   hideCreateForm?: boolean;
   nowIso: string;
   onEnsurePostId?: () => Promise<number>;
@@ -297,6 +298,7 @@ function TodoItemRow({
 export default function TodoItemsPanel({
   canEdit,
   embedded = false,
+  forceDueTodo = false,
   hideCreateForm = false,
   nowIso,
   onEnsurePostId,
@@ -309,7 +311,9 @@ export default function TodoItemsPanel({
   const [newText, setNewText] = useState("");
   const [newDueAt, setNewDueAt] = useState("");
   const [newReminderAt, setNewReminderAt] = useState("");
-  const [todoKind, setTodoKind] = useState<"plain" | "due">("plain");
+  const [todoKind, setTodoKind] = useState<"plain" | "due">(
+    forceDueTodo ? "due" : "plain",
+  );
   const [activeFilter, setActiveFilter] = useState<TodoItemFilter>("all");
   const [isCreating, startCreateTransition] = useTransition();
   const nowTime = new Date(nowIso).getTime();
@@ -338,7 +342,9 @@ export default function TodoItemsPanel({
       return;
     }
 
-    if (todoKind === "due" && !newDueAt) {
+    const nextTodoKind = forceDueTodo ? "due" : todoKind;
+
+    if (nextTodoKind === "due" && !newDueAt) {
       setCreateState({ success: false, message: "期限日時を入力してください。" });
       return;
     }
@@ -369,9 +375,9 @@ export default function TodoItemsPanel({
       setActivePostId(ensuredPostId);
 
       const formData = buildTodoFormData({
-        dueAt: todoKind === "due" ? newDueAt : null,
+        dueAt: nextTodoKind === "due" ? newDueAt : null,
         postId: ensuredPostId,
-        reminderAt: todoKind === "due" ? newReminderAt : null,
+        reminderAt: nextTodoKind === "due" ? newReminderAt : null,
         text: newText.trim(),
       });
       const result = await createTodoItem(initialActionState, formData);
@@ -384,12 +390,13 @@ export default function TodoItemsPanel({
       }
     });
   };
+  const activeTodoKind = forceDueTodo ? "due" : todoKind;
 
   const handleCreateKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter") return;
     if (isComposingEnter(event)) return;
     event.preventDefault();
-    if (!newText.trim() || (todoKind === "due" && !newDueAt)) return;
+    if (!newText.trim() || (activeTodoKind === "due" && !newDueAt)) return;
     handleCreate();
   };
 
@@ -408,35 +415,39 @@ export default function TodoItemsPanel({
 
       {!hideCreateForm && (
         <>
-          <p className="todo-items__create-title">Todoを追加</p>
-          <div className="todo-items__kind" role="radiogroup" aria-label="Todo種別">
-            <label>
-              <input
-                type="radio"
-                name={embedded ? "editorTodoKind" : "detailTodoKind"}
-                value="plain"
-                checked={todoKind === "plain"}
-                onChange={() => setTodoKind("plain")}
-                disabled={!canEdit || isCreating}
-              />
-              <span>普通のTodo</span>
-            </label>
-            <label>
-              <input
-                type="radio"
-                name={embedded ? "editorTodoKind" : "detailTodoKind"}
-                value="due"
-                checked={todoKind === "due"}
-                onChange={() => setTodoKind("due")}
-                disabled={!canEdit || isCreating}
-              />
-              <span>期限付きTodo</span>
-            </label>
-          </div>
+          <p className="todo-items__create-title">
+            {forceDueTodo ? "期限付きTodoを追加" : "Todoを追加"}
+          </p>
+          {!forceDueTodo && (
+            <div className="todo-items__kind" role="radiogroup" aria-label="Todo種別">
+              <label>
+                <input
+                  type="radio"
+                  name={embedded ? "editorTodoKind" : "detailTodoKind"}
+                  value="plain"
+                  checked={todoKind === "plain"}
+                  onChange={() => setTodoKind("plain")}
+                  disabled={!canEdit || isCreating}
+                />
+                <span>普通のTodo</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name={embedded ? "editorTodoKind" : "detailTodoKind"}
+                  value="due"
+                  checked={todoKind === "due"}
+                  onChange={() => setTodoKind("due")}
+                  disabled={!canEdit || isCreating}
+                />
+                <span>期限付きTodo</span>
+              </label>
+            </div>
+          )}
           <div
             className={[
               "todo-items__create-form",
-              todoKind === "due" ? "todo-items__create-form--due" : "",
+              activeTodoKind === "due" ? "todo-items__create-form--due" : "",
             ]
               .filter(Boolean)
               .join(" ")}
@@ -452,7 +463,7 @@ export default function TodoItemsPanel({
                 maxLength={500}
               />
             </label>
-            {todoKind === "due" && (
+            {activeTodoKind === "due" && (
               <>
                 <label>
                   <span>期限日時</span>
@@ -481,7 +492,12 @@ export default function TodoItemsPanel({
               type="button"
               className="todo-items__button"
               onClick={handleCreate}
-              disabled={!canEdit || isCreating || !newText.trim() || (todoKind === "due" && !newDueAt)}
+              disabled={
+                !canEdit ||
+                isCreating ||
+                !newText.trim() ||
+                (activeTodoKind === "due" && !newDueAt)
+              }
             >
               追加
             </button>

@@ -14,13 +14,19 @@ type AutoSaveResult = {
 export function usePostForm({
   mode,
   canChangePublished = true,
+  creationKind = "text",
   initialPost,
   autoSaveAction,
   saveAction,
 }: PostFormProps) {
   const [postId, setPostId] = useState<number | null>(initialPost?.id ?? null);
-  const [title, setTitle] = useState(initialPost?.title ?? "");
-  const [content, setContent] = useState(initialPost?.content ?? "");
+  const [title, setTitle] = useState(
+    initialPost?.title ?? (mode === "new" && creationKind === "todo" ? "期限付きTodo" : ""),
+  );
+  const [content, setContent] = useState(
+    initialPost?.content ??
+      (mode === "new" && creationKind === "todo" ? "期限付きTodo" : ""),
+  );
   const [tags, setTags] = useState(initialPost?.tags ?? "");
   const [published, setPublished] = useState(initialPost?.published ?? false);
   const [status, setStatus] = useState<SaveStatus>("idle");
@@ -87,6 +93,7 @@ export function usePostForm({
   );
 
   const handleAutoSave = useCallback(async () => {
+    if (mode === "new" && creationKind === "todo") return;
     if (mode === "new" && !hasDraftContent) return;
     if (currentSignature === lastSavedSignatureRef.current) return;
     if (mode === "edit" && currentSignature === initialSignature) return;
@@ -102,7 +109,15 @@ export function usePostForm({
     } else {
       setStatus("error");
     }
-  }, [currentSignature, hasDraftContent, initialSignature, mode, payload, runAutoSaveAction]);
+  }, [
+    creationKind,
+    currentSignature,
+    hasDraftContent,
+    initialSignature,
+    mode,
+    payload,
+    runAutoSaveAction,
+  ]);
 
   const ensureDraftPost = useCallback(async () => {
     if (postId) return postId;
