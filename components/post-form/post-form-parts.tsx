@@ -10,6 +10,7 @@ type PostEditorTopbarProps = {
   mode: "new" | "edit";
   published: boolean;
   handlePublishedChange: (nextPublished: boolean) => void;
+  title?: string;
 };
 
 type PostEditorToolbarProps = {
@@ -28,6 +29,7 @@ type PostEditorFooterProps = {
   canChangePublished: boolean;
   isPending: boolean;
   published: boolean;
+  submitLabel?: string;
 };
 
 const aiTasks: [AiMode, string][] = [
@@ -42,12 +44,13 @@ export function PostEditorTopbar({
   mode,
   published,
   handlePublishedChange,
+  title,
 }: PostEditorTopbarProps) {
   return (
     <header className="post-editor__topbar">
       <div>
         <p className="post-editor__eyebrow">{mode === "new" ? "New memo" : "Edit memo"}</p>
-        <h1>{mode === "new" ? "新規メモ作成" : "メモを編集"}</h1>
+        <h1>{title ?? (mode === "new" ? "新規メモ作成" : "メモを編集")}</h1>
       </div>
 
       {canChangePublished ? (
@@ -121,6 +124,7 @@ export function PostEditorFooter({
   canChangePublished,
   isPending,
   published,
+  submitLabel,
 }: PostEditorFooterProps) {
   return (
     <footer className="post-editor__footer">
@@ -130,6 +134,8 @@ export function PostEditorFooter({
       <button type="submit" className="post-editor__primary-action" disabled={isPending}>
         {isPending
           ? "保存中..."
+          : submitLabel
+            ? submitLabel
           : canChangePublished
             ? published
               ? "公開して保存"

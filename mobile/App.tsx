@@ -74,7 +74,9 @@ import type {
 type ViewMode =
   | "list"
   | "detail"
+  | "create-choice"
   | "create"
+  | "create-todo"
   | "edit"
   | "share"
   | "todos"
@@ -97,6 +99,12 @@ type MainTab = "list" | "todos" | "calendar" | "account";
 type CalendarQuickFilter = "today" | "tomorrow" | "week" | "overdue";
 
 const AUTO_SAVE_DEBOUNCE_MS = 1500;
+const DUE_TODO_MEMO_PAYLOAD: MobilePostPayload = {
+  content: "期限付きTodo",
+  published: false,
+  tags: "",
+  title: "期限付きTodo",
+};
 
 const aiTasks: { label: string; mode: MobileAiMode }[] = [
   { label: "タイトル生成", mode: "title" },
@@ -934,6 +942,7 @@ function CalendarMonthGrid({
 function TodoItemsPanel({
   canEdit,
   error,
+  forceDueTodo,
   onCreate,
   onDelete,
   onToggle,
@@ -943,6 +952,7 @@ function TodoItemsPanel({
 }: {
   canEdit: boolean;
   error: string;
+  forceDueTodo?: boolean;
   onCreate: (payload: { dueAt: string | null; reminderAt?: string | null; text: string }) => void;
   onDelete: (todo: MobileTodoItem) => void;
   onToggle: (todo: MobileTodoItem) => void;
@@ -953,7 +963,9 @@ function TodoItemsPanel({
   savingId: number | "new" | null;
   todoItems: MobileTodoItem[];
 }) {
-  const [newTodoKind, setNewTodoKind] = useState<"normal" | "due">("normal");
+  const [newTodoKind, setNewTodoKind] = useState<"normal" | "due">(
+    forceDueTodo ? "due" : "normal",
+  );
   const [newText, setNewText] = useState("");
   const [newDueAt, setNewDueAt] = useState("");
   const [newReminderAt, setNewReminderAt] = useState("");
@@ -982,8 +994,9 @@ function TodoItemsPanel({
       return;
     }
 
-    const dueAt = newTodoKind === "due" ? parseTodoDateInput(newDueAt) : null;
-    if (newTodoKind === "due" && !dueAt) {
+    const activeTodoKind = forceDueTodo ? "due" : newTodoKind;
+    const dueAt = activeTodoKind === "due" ? parseTodoDateInput(newDueAt) : null;
+    if (activeTodoKind === "due" && !dueAt) {
       setLocalError("期限日時を YYYY-MM-DD HH:mm 形式で入力してください。");
       return;
     }
@@ -1001,7 +1014,7 @@ function TodoItemsPanel({
     setNewText("");
     setNewDueAt("");
     setNewReminderAt("");
-  }, [newDueAt, newReminderAt, newText, newTodoKind, onCreate]);
+  }, [forceDueTodo, newDueAt, newReminderAt, newText, newTodoKind, onCreate]);
 
   const submitEdit = useCallback(
     (todo: MobileTodoItem) => {
@@ -1044,28 +1057,30 @@ function TodoItemsPanel({
 
       {canEdit ? (
         <Card style={[styles.modelTodoForm, styles.flatSurface]}>
-          <View style={styles.todoKindRow}>
-            {(["normal", "due"] as const).map((kind) => (
-              <Pressable
-                accessibilityRole="button"
-                key={kind}
-                onPress={() => setNewTodoKind(kind)}
-                style={[
-                  styles.filterChip,
-                  newTodoKind === kind ? styles.filterChipActive : undefined,
-                ]}
-              >
-                <Text
+          {!forceDueTodo ? (
+            <View style={styles.todoKindRow}>
+              {(["normal", "due"] as const).map((kind) => (
+                <Pressable
+                  accessibilityRole="button"
+                  key={kind}
+                  onPress={() => setNewTodoKind(kind)}
                   style={[
-                    styles.filterChipText,
-                    newTodoKind === kind ? styles.filterChipTextActive : undefined,
+                    styles.filterChip,
+                    newTodoKind === kind ? styles.filterChipActive : undefined,
                   ]}
                 >
-                  {kind === "normal" ? "普通のTodo" : "期限付きTodo"}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      newTodoKind === kind ? styles.filterChipTextActive : undefined,
+                    ]}
+                  >
+                    {kind === "normal" ? "普通のTodo" : "期限付きTodo"}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
           <TextField
             editable={savingId !== "new"}
             label="Todo本文"
@@ -1073,7 +1088,7 @@ function TodoItemsPanel({
             placeholder="やること"
             value={newText}
           />
-          {newTodoKind === "due" ? (
+          {forceDueTodo || newTodoKind === "due" ? (
             <TextField
               editable={savingId !== "new"}
               label="期限日時"
@@ -1166,6 +1181,170 @@ function TodoItemsPanel({
         <Text style={styles.modelTodoEmpty}>このメモのTodoItemはまだありません。</Text>
       )}
     </View>
+  );
+}
+
+function NewPostChoiceScreen({
+  onCancel,
+  onSelectText,
+  onSelectTodo,
+}: {
+  onCancel: () => void;
+  onSelectText: () => void;
+  onSelectTodo: () => void;
+}) {
+  return (
+    <ScrollView contentContainerStyle={styles.formContent}>
+      <View style={styles.editorTopbar}>
+        <View style={styles.editorHeading}>
+          <Text style={styles.kicker}>New</Text>
+          <Text style={styles.title}>新規作成</Text>
+        </View>
+      </View>
+
+      <View style={styles.creationChoiceGrid}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={onSelectText}
+          style={({ pressed }) => [
+            styles.creationChoiceCard,
+            pressed ? styles.buttonPressed : undefined,
+          ]}
+        >
+          <Text style={styles.creationChoiceLabel}>テキスト</Text>
+          <Text style={styles.creationChoiceTitle}>メモ帳として作成</Text>
+          <Text style={styles.creationChoiceText}>
+            タイトル、本文、タグ、公開設定、AI Assistantを使えます。
+          </Text>
+        </Pressable>
+
+        <Pressable
+          accessibilityRole="button"
+          onPress={onSelectTodo}
+          style={({ pressed }) => [
+            styles.creationChoiceCard,
+            pressed ? styles.buttonPressed : undefined,
+          ]}
+        >
+          <Text style={styles.creationChoiceLabel}>Todo</Text>
+          <Text style={styles.creationChoiceTitle}>期限付きTodoを作成</Text>
+          <Text style={styles.creationChoiceText}>
+            Todo本文、期限日時、リマインダーだけを入力します。
+          </Text>
+        </Pressable>
+      </View>
+
+      <Button onPress={onCancel} style={styles.fullButton} variant="secondary">
+        キャンセル
+      </Button>
+    </ScrollView>
+  );
+}
+
+function DueTodoCreateScreen({
+  error,
+  onCancel,
+  onSubmit,
+  saving,
+}: {
+  error: string;
+  onCancel: () => void;
+  onSubmit: (payload: { dueAt: string; reminderAt?: string | null; text: string }) => void;
+  saving: boolean;
+}) {
+  const [text, setText] = useState("");
+  const [dueAt, setDueAt] = useState("");
+  const [reminderAt, setReminderAt] = useState("");
+  const [localError, setLocalError] = useState("");
+
+  const submit = useCallback(() => {
+    const nextText = text.trim();
+    if (!nextText) {
+      setLocalError("Todo本文を入力してください。");
+      return;
+    }
+
+    const parsedDueAt = parseTodoDateInput(dueAt);
+    if (!parsedDueAt) {
+      setLocalError("期限日時を YYYY-MM-DD HH:mm 形式で入力してください。");
+      return;
+    }
+
+    const parsedReminderAt = reminderAt.trim()
+      ? parseTodoDateInput(reminderAt)
+      : null;
+    if (reminderAt.trim() && !parsedReminderAt) {
+      setLocalError("リマインダー日時を YYYY-MM-DD HH:mm 形式で入力してください。");
+      return;
+    }
+
+    setLocalError("");
+    onSubmit({ dueAt: parsedDueAt, reminderAt: parsedReminderAt, text: nextText });
+  }, [dueAt, onSubmit, reminderAt, text]);
+
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
+      style={styles.flex}
+    >
+      <ScrollView contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
+        <View style={styles.editorTopbar}>
+          <View style={styles.editorHeading}>
+            <Text style={styles.kicker}>Due Todo</Text>
+            <Text style={styles.title}>期限付きTodo作成</Text>
+          </View>
+        </View>
+
+        <Card style={[styles.modelTodoForm, styles.flatSurface]}>
+          <TextField
+            editable={!saving}
+            label="Todo本文"
+            onChangeText={setText}
+            placeholder="やること"
+            value={text}
+          />
+          <TextField
+            editable={!saving}
+            label="期限日時"
+            onChangeText={setDueAt}
+            placeholder="2026-05-29 18:30"
+            value={dueAt}
+          />
+          <TextField
+            editable={!saving}
+            label="リマインダー"
+            onChangeText={setReminderAt}
+            placeholder="任意: 2026-05-29 09:00"
+            value={reminderAt}
+          />
+        </Card>
+
+        {localError || error ? (
+          <Text style={styles.formError}>{localError || error}</Text>
+        ) : null}
+
+        <View style={styles.formActions}>
+          <Button
+            disabled={saving}
+            onPress={onCancel}
+            style={styles.formActionButton}
+            variant="secondary"
+          >
+            キャンセル
+          </Button>
+          <Button
+            disabled={saving}
+            loading={saving}
+            onPress={submit}
+            style={styles.formActionButton}
+            variant="dark"
+          >
+            Todoを作成
+          </Button>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -2697,7 +2876,22 @@ export default function App() {
     setSelectedPost(null);
     setFormError("");
     setAutoSaveError("");
+    setTodoError("");
+    setViewMode("create-choice");
+  }, []);
+
+  const handleCreateText = useCallback(() => {
+    setSelectedPost(null);
+    setFormError("");
+    setAutoSaveError("");
     setViewMode("create");
+  }, []);
+
+  const handleCreateDueTodo = useCallback(() => {
+    setSelectedPost(null);
+    setFormError("");
+    setTodoError("");
+    setViewMode("create-todo");
   }, []);
 
   const handleEdit = useCallback(() => {
@@ -3194,6 +3388,49 @@ export default function App() {
       });
     },
     [],
+  );
+
+  const handleSaveDueTodoCreate = useCallback(
+    async (payload: { dueAt: string; reminderAt?: string | null; text: string }) => {
+      if (!accessToken) {
+        setLoginError("ログインが必要です。");
+        return;
+      }
+
+      setSaving(true);
+      setTodoError("");
+
+      try {
+        const savedPost = await withAuthRetry((token) =>
+          createMobilePost(token, DUE_TODO_MEMO_PAYLOAD),
+        );
+        const todoItem = await withAuthRetry((token) =>
+          createMobileTodoItem(token, savedPost.id, payload),
+        );
+        const postWithTodo: MobilePost = {
+          ...savedPost,
+          todoItems: [...(savedPost.todoItems ?? []), todoItem],
+        };
+
+        setPosts((currentPosts) => [postWithTodo, ...currentPosts]);
+        setSelectedPost(postWithTodo);
+        syncCrossMemoTodo(todoItem, postWithTodo, true);
+        setViewMode("detail");
+      } catch (caughtError) {
+        if (await handleAuthError(caughtError)) {
+          return;
+        }
+
+        setTodoError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "期限付きTodoの作成に失敗しました。",
+        );
+      } finally {
+        setSaving(false);
+      }
+    },
+    [accessToken, handleAuthError, syncCrossMemoTodo, withAuthRetry],
   );
 
   const removeCrossMemoTodo = useCallback((todoItemId: number) => {
@@ -3708,6 +3945,35 @@ export default function App() {
             </Card>
           </ScrollView>
         </KeyboardAvoidingView>
+      </SafeAreaView>
+    );
+  }
+
+  if (viewMode === "create-choice") {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" />
+        <NewPostChoiceScreen
+          onCancel={() => setViewMode("list")}
+          onSelectText={handleCreateText}
+          onSelectTodo={handleCreateDueTodo}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  if (viewMode === "create-todo") {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" />
+        <DueTodoCreateScreen
+          error={todoError}
+          onCancel={handleCancelForm}
+          onSubmit={(payload) => {
+            void handleSaveDueTodoCreate(payload);
+          }}
+          saving={saving}
+        />
       </SafeAreaView>
     );
   }
@@ -5540,6 +5806,42 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   modelTodoEmpty: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 22,
+  },
+  creationChoiceGrid: {
+    gap: 12,
+    marginBottom: 18,
+  },
+  creationChoiceCard: {
+    backgroundColor: colors.surfaceStrong,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: 8,
+    minHeight: 142,
+    padding: 18,
+  },
+  creationChoiceLabel: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.pill,
+    color: colors.primaryStrong,
+    fontSize: 12,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  creationChoiceTitle: {
+    color: colors.text,
+    fontSize: 19,
+    fontWeight: "900",
+    lineHeight: 25,
+  },
+  creationChoiceText: {
     color: colors.textMuted,
     fontSize: 14,
     fontWeight: "700",
