@@ -11,6 +11,7 @@
 - `.env.production` や `mobile/.env.production` などの env 派生ファイルを明示的に ignore していませんでした。
 - 安全な `.env.example` / `mobile/.env.example` がなく、README の手順だけに依存していました。
 - `next.config.ts` に基本的なセキュリティヘッダーがありませんでした。
+- `/api/cron/send-todo-reminders?secret=...` 形式の Cron 認証が許可されており、secret が URL ログや履歴に残りやすい状態でした。
 - テストで無効・期限切れ Bearer token、refresh token replay、ログの秘密情報 redaction の確認が不足していました。
 
 ## 修正した問題
@@ -43,6 +44,12 @@
 
 - `.env.example` / `mobile/.env.example`
   - 秘密情報を含まないダミー値だけの env サンプルを追加しました。
+  - Todo リマインダー Cron 用の `CRON_SECRET` ダミー値を追加しました。
+
+- `app/api/cron/send-todo-reminders/route.ts`
+  - Cron 認証を `Authorization: Bearer <CRON_SECRET>` と `x-cron-secret: <CRON_SECRET>` header のみにしました。
+  - URL query の `?secret=...` は認証に使わず、query secret のみのリクエストは 401 になります。
+  - `CRON_SECRET` 未設定時は安全側に倒し、Cron 処理を実行せず 401 を返します。
 
 - テスト
   - 無効な Bearer token が `/api/mobile/posts` で 401 になることを追加確認しました。
@@ -51,6 +58,7 @@
   - refresh token replay 時に 401 になることを追加確認しました。
   - モバイル用の post readable 条件が owner / shared のみに絞られていることを追加確認しました。
   - サーバーログから token / DB URL が redaction されることを追加確認しました。
+  - Cron が正しい `Authorization` header と `x-cron-secret` header でのみ成功し、secret なし、誤った secret、query secret のみ、`CRON_SECRET` 未設定時は 401 になることを確認しました。
 
 ## 確認した認可・入力検証の状況
 
@@ -72,9 +80,6 @@
 
 - CSRF の追加防御
   - Server Actions と Auth.js の基本防御に依存しています。高リスク操作には intent token や再認証を追加するとさらに堅くできます。
-
-- Cron secret の URL query 利用
-  - 現在 `/api/cron/send-todo-reminders?secret=...` 形式も許可されています。URL はログに残りやすいため、将来的には Authorization header または `x-cron-secret` のみに寄せることを推奨します。
 
 - Tag の所有者モデル
   - 現在 `Tag` はグローバル unique name です。現状 API は認可済み Post 経由でしかタグを返さないため直接漏洩は見つけていませんが、タグ自体を個人データとして厳密に扱うなら `userId` を持たせる設計変更が望ましいです。
@@ -100,13 +105,16 @@
   - 実 env は ignore、example は追跡可能であることを確認しました。
 
 - `npm run test`
-  - 13 files / 76 tests passed.
+  - 14 files / 87 tests passed.
 
 - `npm run lint`
   - passed.
 
 - `npm run build`
   - passed.
+
+- `npm run test:e2e`
+  - 5 tests passed.
 
 - `npm audit --audit-level=high`
   - 初回はネットワーク制限で失敗。ネットワーク許可後に再実行し、`found 0 vulnerabilities`。
@@ -122,7 +130,6 @@
 
 1. mobile login / credentials login / AI API に rate limit を追加する。
 2. refresh token reuse detection と token family 全失効を追加する。
-3. Cron 認証から query secret を廃止し、header 認証だけにする。
-4. タグをユーザー所有モデルにするか、タグ API を追加する場合は必ず `userId` スコープにする。
-5. 本番ドメイン確定後、CSP を report-only から段階導入する。
-6. 重要操作に再認証または確認用 nonce を追加する。
+3. タグをユーザー所有モデルにするか、タグ API を追加する場合は必ず `userId` スコープにする。
+4. 本番ドメイン確定後、CSP を report-only から段階導入する。
+5. 重要操作に再認証または確認用 nonce を追加する。
