@@ -4,7 +4,13 @@ import Google from "next-auth/providers/google";
 import GitHub from "next-auth/providers/github";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/prisma";
-import { verifyCredentialsUser } from "@/lib/credentials-auth";
+import {
+  checkCredentialsLoginRateLimit,
+  getCredentialsRateLimitEmail,
+  recordCredentialsLoginFailure,
+  resetCredentialsLoginRateLimit,
+  verifyCredentialsUser,
+} from "@/lib/credentials-auth";
 import { logServerError } from "@/lib/server-errors";
 
 const googleClientId = process.env.AUTH_GOOGLE_ID;
@@ -178,8 +184,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: "Password", type: "password" },
       },
 
-      async authorize(credentials) {
-        return verifyCredentialsUser(credentials);
+      async authorize(credentials, request) {
+        const email = getCredentialsRateLimitEmail(credentials);
+        const rateLimit = checkCredentialsLoginRateLimit(request, email);
+
+        if (rateLimit.blockedBy) {
+          return null;
+        }
+
+        const user = await verifyCredentialsUser(credentials);
+
+        if (!user) {
+          recordCredentialsLoginFailure(request, email);
+          return null;
+        }
+
+        resetCredentialsLoginRateLimit(request, email);
+        return user;
       },
     }),
   ],
