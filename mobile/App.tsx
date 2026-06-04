@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import * as Clipboard from "expo-clipboard";
 import {
   ActivityIndicator,
@@ -99,6 +99,9 @@ type MainTab = "list" | "todos" | "calendar" | "account";
 type CalendarQuickFilter = "today" | "tomorrow" | "week" | "overdue";
 
 const AUTO_SAVE_DEBOUNCE_MS = 1500;
+const MOBILE_MEMO_INITIAL_LIMIT = 30;
+const MOBILE_TODO_INITIAL_LIMIT = 100;
+const MOBILE_CALENDAR_INITIAL_LIMIT = 180;
 const DUE_TODO_MEMO_PAYLOAD: MobilePostPayload = {
   content: "期限付きTodo",
   kind: "dueTodo",
@@ -588,12 +591,19 @@ function PostContentPreview({ content }: { content: string }) {
   );
 }
 
-function PostTodoItemsPreview({ todoItems }: { todoItems: MobileTodoItem[] }) {
+function PostTodoItemsPreview({
+  todoItems,
+  todoItemsCount,
+}: {
+  todoItems: MobileTodoItem[];
+  todoItemsCount?: number;
+}) {
   const sortedTodoItems = useMemo(
     () => [...todoItems].sort(compareTodos),
     [todoItems],
   );
   const visibleItems = sortedTodoItems.slice(0, 4);
+  const totalTodoItems = todoItemsCount ?? sortedTodoItems.length;
 
   if (visibleItems.length === 0) {
     return (
@@ -639,9 +649,9 @@ function PostTodoItemsPreview({ todoItems }: { todoItems: MobileTodoItem[] }) {
           ) : null}
         </View>
       ))}
-      {sortedTodoItems.length > visibleItems.length ? (
+      {totalTodoItems > visibleItems.length ? (
         <Text style={styles.cardTodoPreviewMore}>
-          他 {sortedTodoItems.length - visibleItems.length} 件
+          他 {totalTodoItems - visibleItems.length} 件
         </Text>
       ) : null}
     </View>
@@ -693,7 +703,10 @@ function PostCard({
           </Text>
 
           {isTodoListPost(post) ? (
-            <PostTodoItemsPreview todoItems={post.todoItems ?? []} />
+            <PostTodoItemsPreview
+              todoItems={post.todoItems ?? []}
+              todoItemsCount={post.todoItemsCount}
+            />
           ) : (
             <PostContentPreview content={post.content} />
           )}
@@ -2807,7 +2820,7 @@ export default function App() {
 
       try {
         const nextPosts = await withAuthRetry((token) =>
-          fetchMobilePosts(token),
+          fetchMobilePosts(token, { limit: MOBILE_MEMO_INITIAL_LIMIT }),
         );
         setPosts(nextPosts);
       } catch (caughtError) {
@@ -2844,7 +2857,9 @@ export default function App() {
       setAllTodosError("");
 
       try {
-        const todos = await withAuthRetry((token) => fetchMobileAllTodos(token));
+        const todos = await withAuthRetry((token) =>
+          fetchMobileAllTodos(token, { limit: MOBILE_TODO_INITIAL_LIMIT }),
+        );
         setAllTodos(todos);
       } catch (caughtError) {
         if (await handleAuthError(caughtError)) {
@@ -2876,7 +2891,7 @@ export default function App() {
 
       try {
         const todos = await withAuthRetry((token) =>
-          fetchMobileTodoCalendar(token),
+          fetchMobileTodoCalendar(token, { limit: MOBILE_CALENDAR_INITIAL_LIMIT }),
         );
         setCalendarTodos(todos);
       } catch (caughtError) {
@@ -4071,8 +4086,9 @@ export default function App() {
 
   const errorTitle =
     errorStatus === 401 ? "ログインが必要です" : "取得できませんでした";
+  const deferredQuery = useDeferredValue(query);
   const filteredPosts = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
+    const normalizedQuery = deferredQuery.trim().toLowerCase();
 
     return posts
       .filter((post) => {
@@ -4109,7 +4125,7 @@ export default function App() {
 
         return new Date(right).getTime() - new Date(left).getTime();
       });
-  }, [posts, query, selectedFilter, sortMode]);
+  }, [deferredQuery, posts, selectedFilter, sortMode]);
   const visibleAllTodos = useMemo(
     () => allTodos.filter((todo) => matchesTodoFilter(todo, todoFilter)).sort(compareTodos),
     [allTodos, todoFilter],
@@ -4187,12 +4203,17 @@ export default function App() {
     }),
     [calendarTodos],
   );
-  const publishedCount = posts.filter((post) => post.published).length;
-  const privateCount = posts.filter((post) => !post.published).length;
-  const myMemoCount = posts.filter((post) => post.accessRole === "owner").length;
-  const sharedCount = posts.filter(
-    (post) => post.accessRole === "viewer" || post.accessRole === "editor",
-  ).length;
+  const postSummaryCounts = useMemo(
+    () => ({
+      myMemo: posts.filter((post) => post.accessRole === "owner").length,
+      private: posts.filter((post) => !post.published).length,
+      published: posts.filter((post) => post.published).length,
+      shared: posts.filter(
+        (post) => post.accessRole === "viewer" || post.accessRole === "editor",
+      ).length,
+    }),
+    [posts],
+  );
   const selectedFilterLabel =
     statusFilters.find((filter) => filter.value === selectedFilter)?.label ??
     "すべて";
@@ -4919,7 +4940,7 @@ export default function App() {
               </Button>
             </View>
             <Text style={styles.postsSummary}>
-              {posts.length}件 / 自分 {myMemoCount}件 / 共有 {sharedCount}件 / 公開 {publishedCount}件 / 非公開 {privateCount}件
+              表示中 {posts.length}件 / 自分 {postSummaryCounts.myMemo}件 / 共有 {postSummaryCounts.shared}件 / 公開 {postSummaryCounts.published}件 / 非公開 {postSummaryCounts.private}件
             </Text>
           </View>
         </View>

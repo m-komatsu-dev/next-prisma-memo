@@ -7,6 +7,13 @@ import {
   getSharedPostsWhere,
 } from "@/lib/post-permissions";
 import { prisma } from "@/lib/prisma";
+import {
+  createMemoPreview,
+  getNextListLimit,
+  MEMO_LIST_MAX_LIMIT,
+  MEMO_LIST_PAGE_SIZE,
+  resolveListLimit,
+} from "@/lib/list-query";
 import { logServerError, throwLoggedActionError } from "@/lib/server-errors";
 import {
   getFirstZodErrorMessage,
@@ -24,10 +31,13 @@ export const metadata: Metadata = {
 };
 
 type PostsFilter = "all" | "published" | "private" | "mine" | "shared";
+type PostsSort = "updated-desc" | "created-desc" | "title-asc";
 
 type PostsPageProps = {
   searchParams?: Promise<{
     filter?: string | string[];
+    limit?: string | string[];
+    sort?: string | string[];
   }>;
 };
 
@@ -38,10 +48,28 @@ const postFilters = new Set<PostsFilter>([
   "mine",
   "shared",
 ]);
+const postSorts = new Set<PostsSort>(["updated-desc", "created-desc", "title-asc"]);
 
 function resolvePostsFilter(filter: string | string[] | undefined): PostsFilter {
   const value = Array.isArray(filter) ? filter[0] : filter;
   return value && postFilters.has(value as PostsFilter) ? (value as PostsFilter) : "all";
+}
+
+function resolvePostsSort(sort: string | string[] | undefined): PostsSort {
+  const value = Array.isArray(sort) ? sort[0] : sort;
+  return value && postSorts.has(value as PostsSort) ? (value as PostsSort) : "updated-desc";
+}
+
+function getPostsOrderBy(sort: PostsSort): Prisma.PostOrderByWithRelationInput {
+  if (sort === "created-desc") {
+    return { createdAt: "desc" };
+  }
+
+  if (sort === "title-asc") {
+    return { title: "asc" };
+  }
+
+  return { updatedAt: "desc" };
 }
 
 function getPostsWhere(filter: PostsFilter, userId: string): Prisma.PostWhereInput {
@@ -195,38 +223,68 @@ export default async function PostsPage({ searchParams }: PostsPageProps) {
 
   const resolvedSearchParams = await searchParams;
   const selectedFilter = resolvePostsFilter(resolvedSearchParams?.filter);
+  const selectedSort = resolvePostsSort(resolvedSearchParams?.sort);
+  const selectedLimit = resolveListLimit(
+    resolvedSearchParams?.limit,
+    MEMO_LIST_PAGE_SIZE,
+    MEMO_LIST_MAX_LIMIT,
+  );
 
   let posts: MemoListPost[] = [];
   let accessiblePostsCount = 0;
+  let filteredPostsCount = 0;
+  let hasMorePosts = false;
 
   try {
-    posts = await prisma.post.findMany({
-      where: getPostsWhere(selectedFilter, userId),
-      select: getMemoListPostSelect(userId),
-      orderBy: { updatedAt: "desc" },
-    });
-    accessiblePostsCount =
-      selectedFilter === "all"
-        ? posts.length
-        : await prisma.post.count({
-            where: getPostsWhere("all", userId),
-          });
+    const selectedWhere = getPostsWhere(selectedFilter, userId);
+    const [nextPosts, nextFilteredPostsCount, nextAccessiblePostsCount] =
+      await prisma.$transaction([
+        prisma.post.findMany({
+          where: selectedWhere,
+          select: getMemoListPostSelect(userId),
+          orderBy: getPostsOrderBy(selectedSort),
+          take: selectedLimit + 1,
+        }),
+        prisma.post.count({
+          where: selectedWhere,
+        }),
+        selectedFilter === "all"
+          ? prisma.post.count({ where: selectedWhere })
+          : prisma.post.count({
+              where: getPostsWhere("all", userId),
+            }),
+      ]);
+
+    hasMorePosts = nextPosts.length > selectedLimit;
+    posts = nextPosts.slice(0, selectedLimit);
+    filteredPostsCount = nextFilteredPostsCount;
+    accessiblePostsCount = nextAccessiblePostsCount;
   } catch (error) {
     logServerError(error, {
       action: "loadPostsPage",
       userId,
-      details: { filter: selectedFilter },
+      details: { filter: selectedFilter, limit: selectedLimit, sort: selectedSort },
     });
     throw new Error("メモの取得に失敗しました。");
   }
 
   const memoPosts: MemoCardPost[] = posts.map((post) => {
     const accessRole = getPostAccessRole(post, userId);
+    const preview = createMemoPreview(post.content);
+    const searchText = [
+      post.title,
+      post.content,
+      ...post.tags.map((tag) => tag.name),
+      ...post.todoItems.map((todoItem) => todoItem.text),
+    ]
+      .join("\n")
+      .toLowerCase();
 
     return {
       id: post.id,
       title: post.title,
-      content: post.content,
+      content: preview.content,
+      contentTruncated: preview.isTruncated,
       published: post.published,
       kind: post.kind,
       todoListDueAt: post.todoListDueAt?.toISOString() ?? null,
@@ -234,6 +292,7 @@ export default async function PostsPage({ searchParams }: PostsPageProps) {
       authorId: post.authorId,
       createdAt: post.createdAt.toISOString(),
       updatedAt: post.updatedAt.toISOString(),
+      searchText,
       tags: post.tags.map((tag) => ({ id: tag.id, name: tag.name })),
       todoItems: post.todoItems.map((todoItem) => ({
         completed: todoItem.completed,
@@ -242,6 +301,7 @@ export default async function PostsPage({ searchParams }: PostsPageProps) {
         position: todoItem.position,
         text: todoItem.text,
       })),
+      todoItemsCount: post._count.todoItems,
     };
   });
 
@@ -251,8 +311,13 @@ export default async function PostsPage({ searchParams }: PostsPageProps) {
         accessiblePostsCount={accessiblePostsCount}
         currentUserId={userId}
         deletePostAction={deletePost}
+        filteredPostsCount={filteredPostsCount}
+        hasMorePosts={hasMorePosts}
+        nextLimit={getNextListLimit(selectedLimit, MEMO_LIST_PAGE_SIZE, MEMO_LIST_MAX_LIMIT)}
         posts={memoPosts}
         selectedFilter={selectedFilter}
+        selectedLimit={selectedLimit}
+        selectedSort={selectedSort}
         togglePublishedAction={togglePublished}
         userName={session.user.name ?? "あなた"}
       />

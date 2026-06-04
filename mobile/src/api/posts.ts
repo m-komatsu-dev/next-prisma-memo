@@ -211,6 +211,8 @@ function normalizeMobilePost(value: unknown): MobilePost | null {
           return normalizedTodoItem ? [normalizedTodoItem] : [];
         })
       : [],
+    todoItemsCount:
+      typeof value.todoItemsCount === "number" ? value.todoItemsCount : undefined,
     updatedAt: normalizeDateString(value.updatedAt),
   };
 }
@@ -413,9 +415,27 @@ function readNormalizedObjectField<T>(
   return normalize(data[fieldName]);
 }
 
-async function fetchMobilePostsForFallback(accessToken: string) {
+type MobileListOptions = {
+  limit?: number;
+};
+
+function buildListQuery(options?: MobileListOptions) {
+  const params = new URLSearchParams();
+
+  if (options?.limit) {
+    params.set("limit", String(options.limit));
+  }
+
+  const queryString = params.toString();
+  return queryString ? `?${queryString}` : "";
+}
+
+async function fetchMobilePostsForFallback(
+  accessToken: string,
+  options?: MobileListOptions,
+) {
   const apiResponse = await requestMobileApi(
-    "/api/mobile/posts",
+    `/api/mobile/posts${buildListQuery(options)}`,
     accessToken,
   );
   const { data, response } = apiResponse;
@@ -453,8 +473,11 @@ async function fetchMobileTodosFromPosts(accessToken: string, onlyWithDueAt: boo
     .filter((todoItem) => !onlyWithDueAt || Boolean(todoItem.dueAt));
 }
 
-export async function fetchMobilePosts(accessToken: string) {
-  return fetchMobilePostsForFallback(accessToken);
+export async function fetchMobilePosts(
+  accessToken: string,
+  options?: MobileListOptions,
+) {
+  return fetchMobilePostsForFallback(accessToken, options);
 }
 
 export async function fetchMobilePost(accessToken: string, postId: number) {
@@ -614,9 +637,12 @@ export async function fetchMobileTodoItems(accessToken: string, postId: number) 
   return todos as MobileTodoItemsResponse["todos"];
 }
 
-export async function fetchMobileAllTodos(accessToken: string) {
+export async function fetchMobileAllTodos(
+  accessToken: string,
+  options?: MobileListOptions,
+) {
   const apiResponse = await requestMobileApi(
-    "/api/mobile/todos",
+    `/api/mobile/todos${buildListQuery(options)}`,
     accessToken,
   );
   const { data, response } = apiResponse;
@@ -642,9 +668,12 @@ export async function fetchMobileAllTodos(accessToken: string) {
   return todos as MobileCrossMemoTodoItemsResponse["todos"];
 }
 
-export async function fetchMobileTodoCalendar(accessToken: string) {
+export async function fetchMobileTodoCalendar(
+  accessToken: string,
+  options?: MobileListOptions,
+) {
   const apiResponse = await requestMobileApi(
-    "/api/mobile/todos/calendar",
+    `/api/mobile/todos/calendar${buildListQuery(options)}`,
     accessToken,
   );
   const { data, response } = apiResponse;

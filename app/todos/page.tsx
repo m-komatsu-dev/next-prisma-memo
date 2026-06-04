@@ -6,6 +6,12 @@ import AllTodosClient, { type CrossMemoTodo } from "@/app/todos/all-todos-client
 import { compareCrossMemoTodos } from "@/components/all-todos-utils";
 import { canEditPost, getPostAccessRole } from "@/lib/post-permissions";
 import { prisma } from "@/lib/prisma";
+import {
+  getNextListLimit,
+  resolveListLimit,
+  TODO_LIST_MAX_LIMIT,
+  TODO_LIST_PAGE_SIZE,
+} from "@/lib/list-query";
 import { logServerError } from "@/lib/server-errors";
 
 export const metadata: Metadata = {
@@ -13,7 +19,13 @@ export const metadata: Metadata = {
   description: "ログイン中ユーザーがアクセスできるメモのTodoを横断して確認できます。",
 };
 
-export default async function TodosPage() {
+type TodosPageProps = {
+  searchParams?: Promise<{
+    limit?: string | string[];
+  }>;
+};
+
+export default async function TodosPage({ searchParams }: TodosPageProps) {
   const session = await auth();
 
   if (!session?.user?.id) {
@@ -23,7 +35,14 @@ export default async function TodosPage() {
   const userId = session.user.id;
   const nowIso = new Date().toISOString();
   const nowTime = new Date(nowIso).getTime();
+  const resolvedSearchParams = await searchParams;
+  const selectedLimit = resolveListLimit(
+    resolvedSearchParams?.limit,
+    TODO_LIST_PAGE_SIZE,
+    TODO_LIST_MAX_LIMIT,
+  );
   let todos: CrossMemoTodo[] = [];
+  let hasMoreTodos = false;
 
   try {
     const todoItems = await prisma.todoItem.findMany({
@@ -52,9 +71,19 @@ export default async function TodosPage() {
           },
         },
       },
+      orderBy: [
+        { completed: "asc" },
+        { dueAt: { sort: "asc", nulls: "last" } },
+        { postId: "asc" },
+        { position: "asc" },
+        { id: "asc" },
+      ],
+      take: selectedLimit + 1,
     });
 
+    hasMoreTodos = todoItems.length > selectedLimit;
     todos = todoItems
+      .slice(0, selectedLimit)
       .map((todoItem) => {
         const accessRole = getPostAccessRole(todoItem.post, userId);
 
@@ -76,6 +105,7 @@ export default async function TodosPage() {
     logServerError(error, {
       action: "loadTodosPage",
       userId,
+      details: { limit: selectedLimit },
     });
     throw new Error("Todo一覧の取得に失敗しました。");
   }
@@ -104,7 +134,12 @@ export default async function TodosPage() {
           </div>
         </header>
 
-        <AllTodosClient nowIso={nowIso} todos={todos} />
+        <AllTodosClient
+          hasMoreTodos={hasMoreTodos}
+          nextLimit={getNextListLimit(selectedLimit, TODO_LIST_PAGE_SIZE, TODO_LIST_MAX_LIMIT)}
+          nowIso={nowIso}
+          todos={todos}
+        />
       </div>
     </main>
   );

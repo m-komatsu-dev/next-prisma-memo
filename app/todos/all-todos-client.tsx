@@ -26,6 +26,8 @@ export type CrossMemoTodo = {
 };
 
 type AllTodosClientProps = {
+  hasMoreTodos: boolean;
+  nextLimit: number;
   nowIso: string;
   todos: CrossMemoTodo[];
 };
@@ -43,7 +45,12 @@ function buildToggleFormData(todo: CrossMemoTodo) {
   return formData;
 }
 
-export default function AllTodosClient({ nowIso, todos }: AllTodosClientProps) {
+export default function AllTodosClient({
+  hasMoreTodos,
+  nextLimit,
+  nowIso,
+  todos,
+}: AllTodosClientProps) {
   const [items, setItems] = useState(todos);
   const [activeFilter, setActiveFilter] = useState<TodoItemFilter>("all");
   const [state, setState] = useState<ToggleState>({ success: true });
@@ -204,6 +211,14 @@ export default function AllTodosClient({ nowIso, todos }: AllTodosClientProps) {
         <p className="all-todos__empty">該当するTodoはありません。</p>
       ) : (
         <p className="all-todos__empty">表示できるTodoはまだありません。</p>
+      )}
+
+      {hasMoreTodos && visibleItems.length > 0 && (
+        <div className="all-todos__pagination">
+          <Link className="posts-secondary-action" href={`/todos?limit=${nextLimit}`}>
+            もっと見る
+          </Link>
+        </div>
       )}
     </section>
   );

@@ -447,6 +447,18 @@ textarea {
   color: var(--text-muted);
 }
 
+.posts-pagination,
+.all-todos__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 18px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
 .memo-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
@@ -845,6 +857,11 @@ textarea {
 
   .memo-grid {
     grid-template-columns: 1fr;
+  }
+
+  .posts-pagination,
+  .all-todos__pagination {
+    flex-direction: column;
   }
 
   .memo-card-actions {

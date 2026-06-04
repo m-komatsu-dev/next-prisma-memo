@@ -3,19 +3,21 @@
 import { TodoListPreview } from "@/components/todo-list";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, type ReactNode, useDeferredValue, useMemo, useState } from "react";
 
 export type MemoCardPost = {
   accessRole: "owner" | "editor" | "viewer" | "public";
   id: number;
   title: string;
   content: string;
+  contentTruncated: boolean;
   kind: string;
   todoListDueAt: string | null;
   published: boolean;
   authorId: string;
   createdAt: string;
   updatedAt: string;
+  searchText: string;
   tags: { id: number; name: string }[];
   todoItems: {
     completed: boolean;
@@ -24,6 +26,7 @@ export type MemoCardPost = {
     position: number;
     text: string;
   }[];
+  todoItemsCount: number;
 };
 
 type ServerAction = (formData: FormData) => Promise<void>;
@@ -34,8 +37,13 @@ type ViewMode = "cards" | "list";
 type PostsListClientProps = {
   posts: MemoCardPost[];
   accessiblePostsCount: number;
+  filteredPostsCount: number;
+  hasMorePosts: boolean;
   currentUserId: string;
+  nextLimit: number;
   selectedFilter: StatusFilter;
+  selectedLimit: number;
+  selectedSort: SortMode;
   userName: string;
   deletePostAction: ServerAction;
   togglePublishedAction: ServerAction;
@@ -57,9 +65,6 @@ const todoPreviewDateFormatter = new Intl.DateTimeFormat("ja-JP", {
   minute: "2-digit",
 });
 
-const PREVIEW_LINE_LIMIT = 14;
-const PREVIEW_APPROX_CHARS_PER_LINE = 42;
-
 function highlightText(text: string, query: string): ReactNode {
   const trimmedQuery = query.trim();
   if (!trimmedQuery) return text;
@@ -78,51 +83,21 @@ function highlightText(text: string, query: string): ReactNode {
   );
 }
 
-function isPreviewLikelyOverflowing(content: string) {
-  const normalized = content.trim();
-  if (!normalized) return false;
-
-  const lines = normalized.split("\n");
-  if (lines.length > PREVIEW_LINE_LIMIT) return true;
-
-  const estimatedWrappedLines = lines.reduce((total, line) => {
-    return total + Math.max(1, Math.ceil(line.length / PREVIEW_APPROX_CHARS_PER_LINE));
-  }, 0);
-
-  return estimatedWrappedLines > PREVIEW_LINE_LIMIT;
-}
-
-function MemoContentPreview({ content, query }: { content: string; query: string }) {
-  const previewRef = useRef<HTMLDivElement>(null);
-  const [isOverflowing, setIsOverflowing] = useState(() => isPreviewLikelyOverflowing(content));
-  const previewClassName = isOverflowing
+function MemoContentPreview({
+  content,
+  isTruncated,
+  query,
+}: {
+  content: string;
+  isTruncated: boolean;
+  query: string;
+}) {
+  const previewClassName = isTruncated
     ? "memo-preview memo-preview--overflowing"
     : "memo-preview";
 
-  useEffect(() => {
-    const preview = previewRef.current;
-    if (!preview) return;
-
-    const measureOverflow = () => {
-      const nextIsOverflowing = preview.scrollHeight - preview.clientHeight > 1;
-      setIsOverflowing((current) => (current === nextIsOverflowing ? current : nextIsOverflowing));
-    };
-
-    measureOverflow();
-
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", measureOverflow);
-      return () => window.removeEventListener("resize", measureOverflow);
-    }
-
-    const resizeObserver = new ResizeObserver(measureOverflow);
-    resizeObserver.observe(preview);
-
-    return () => resizeObserver.disconnect();
-  }, [content, query]);
-
   return (
-    <div ref={previewRef} className={previewClassName}>
+    <div className={previewClassName}>
       <TodoListPreview
         content={content}
         renderText={(text) => highlightText(text, query)}
@@ -134,14 +109,13 @@ function MemoContentPreview({ content, query }: { content: string; query: string
 function TodoItemsPreview({
   query,
   todoItems,
+  todoItemsCount,
 }: {
   query: string;
   todoItems: MemoCardPost["todoItems"];
+  todoItemsCount: number;
 }) {
-  const visibleItems = todoItems
-    .slice()
-    .sort((a, b) => a.position - b.position || a.id - b.id)
-    .slice(0, 4);
+  const visibleItems = todoItems.slice(0, 4);
 
   if (visibleItems.length === 0) {
     return <p className="memo-todo-preview__empty">Todo項目なし</p>;
@@ -172,9 +146,9 @@ function TodoItemsPreview({
           )}
         </li>
       ))}
-      {todoItems.length > visibleItems.length && (
+      {todoItemsCount > visibleItems.length && (
         <li className="memo-todo-preview__more">
-          他 {todoItems.length - visibleItems.length} 件
+          他 {todoItemsCount - visibleItems.length} 件
         </li>
       )}
     </ul>
@@ -192,8 +166,13 @@ function isTodoListPost(post: MemoCardPost) {
 export default function PostsListClient({
   posts,
   accessiblePostsCount,
+  filteredPostsCount,
+  hasMorePosts,
   currentUserId,
+  nextLimit,
   selectedFilter,
+  selectedLimit,
+  selectedSort,
   userName,
   deletePostAction,
   togglePublishedAction,
@@ -202,54 +181,51 @@ export default function PostsListClient({
   const router = useRouter();
   const searchParams = useSearchParams();
   const [query, setQuery] = useState("");
-  const [sortMode, setSortMode] = useState<SortMode>("updated-desc");
+  const deferredQuery = useDeferredValue(query);
   const [viewMode, setViewMode] = useState<ViewMode>("cards");
 
   function updateStatusFilter(filter: StatusFilter) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("filter", filter);
+    params.delete("limit");
+    router.push(`${pathname}?${params.toString()}`);
+  }
+
+  function updateSortMode(sortMode: SortMode) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("sort", sortMode);
+    params.delete("limit");
     router.push(`${pathname}?${params.toString()}`);
   }
 
   const filteredPosts = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
+    const normalizedQuery = deferredQuery.trim().toLowerCase();
 
-    return posts
-      .filter((post) => {
-        const matchesQuery =
-          normalizedQuery.length === 0 ||
-          post.title.toLowerCase().includes(normalizedQuery) ||
-          post.content.toLowerCase().includes(normalizedQuery) ||
-          post.todoItems.some((todoItem) =>
-            todoItem.text.toLowerCase().includes(normalizedQuery),
-          ) ||
-          post.tags.some((tag) => tag.name.toLowerCase().includes(normalizedQuery));
+    return posts.filter((post) => {
+      const matchesQuery =
+        normalizedQuery.length === 0 || post.searchText.includes(normalizedQuery);
 
-        const matchesStatus =
-          selectedFilter === "all" ||
-          (selectedFilter === "published" && post.published) ||
-          (selectedFilter === "private" && !post.published && post.authorId === currentUserId) ||
-          (selectedFilter === "mine" && post.authorId === currentUserId) ||
-          (selectedFilter === "shared" &&
-            (post.accessRole === "viewer" || post.accessRole === "editor"));
+      const matchesStatus =
+        selectedFilter === "all" ||
+        (selectedFilter === "published" && post.published) ||
+        (selectedFilter === "private" && !post.published && post.authorId === currentUserId) ||
+        (selectedFilter === "mine" && post.authorId === currentUserId) ||
+        (selectedFilter === "shared" &&
+          (post.accessRole === "viewer" || post.accessRole === "editor"));
 
-        return matchesQuery && matchesStatus;
-      })
-      .sort((a, b) => {
-        if (sortMode === "title-asc") {
-          return a.title.localeCompare(b.title, "ja");// タイトルを日本語ロケールで昇順にソート
-        }
+      return matchesQuery && matchesStatus;
+    });
+  }, [currentUserId, deferredQuery, posts, selectedFilter]);
 
-        const left = sortMode === "created-desc" ? a.createdAt : a.updatedAt;
-        const right = sortMode === "created-desc" ? b.createdAt : b.updatedAt;
-        return new Date(right).getTime() - new Date(left).getTime();
-      });
-  }, [currentUserId, posts, query, selectedFilter, sortMode]);
-
-  const publishedCount = posts.filter((post) => post.published).length;
-  const privateCount = posts.filter((post) => !post.published && post.authorId === currentUserId).length;
-  const myMemoCount = posts.filter((post) => post.authorId === currentUserId).length;
-  const sharedCount = posts.filter((post) => post.accessRole === "viewer" || post.accessRole === "editor").length;
+  const counts = useMemo(
+    () => ({
+      myMemo: posts.filter((post) => post.authorId === currentUserId).length,
+      private: posts.filter((post) => !post.published && post.authorId === currentUserId).length,
+      published: posts.filter((post) => post.published).length,
+      shared: posts.filter((post) => post.accessRole === "viewer" || post.accessRole === "editor").length,
+    }),
+    [currentUserId, posts],
+  );
 
   function confirmDelete(event: FormEvent<HTMLFormElement>) {
     if (!window.confirm("本当にこのメモを削除してもよろしいですか？")) {
@@ -270,7 +246,7 @@ export default function PostsListClient({
           <p className="posts-eyebrow">Memo workspace</p>
           <h1>{userName}さんのメモ一覧</h1>
           <p className="posts-summary">
-            {posts.length}件のメモ / 自分 {myMemoCount}件 / 共有 {sharedCount}件 / 公開 {publishedCount}件 / 非公開 {privateCount}件
+            表示中 {posts.length}件 / 対象 {filteredPostsCount}件 / 全体 {accessiblePostsCount}件 / 自分 {counts.myMemo}件 / 共有 {counts.shared}件 / 公開 {counts.published}件 / 非公開 {counts.private}件
           </p>
         </div>
         <Link className="posts-primary-action" href="/posts/new">
@@ -313,7 +289,7 @@ export default function PostsListClient({
 
             <label>
               <span>並び替え</span>
-              <select value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)}>
+              <select value={selectedSort} onChange={(event) => updateSortMode(event.target.value as SortMode)}>
                 <option value="updated-desc">更新日が新しい順</option>
                 <option value="created-desc">作成日が新しい順</option>
                 <option value="title-asc">タイトル順</option>
@@ -379,9 +355,17 @@ export default function PostsListClient({
                       </h2>
 
                       {isTodoListPost(post) ? (
-                        <TodoItemsPreview query={query} todoItems={post.todoItems} />
+                        <TodoItemsPreview
+                          query={query}
+                          todoItems={post.todoItems}
+                          todoItemsCount={post.todoItemsCount}
+                        />
                       ) : (
-                        <MemoContentPreview content={post.content} query={query} />
+                        <MemoContentPreview
+                          content={post.content}
+                          isTruncated={post.contentTruncated}
+                          query={query}
+                        />
                       )}
 
                       {isTodoListPost(post) && post.todoListDueAt && (
@@ -443,6 +427,20 @@ export default function PostsListClient({
                 );
               })}
             </section>
+          )}
+          {hasMorePosts && filteredPosts.length > 0 && (
+            <div className="posts-pagination">
+              <Link
+                className="posts-secondary-action"
+                href={`/posts?filter=${selectedFilter}&sort=${selectedSort}&limit=${nextLimit}`}
+              >
+                もっと見る
+              </Link>
+              <span>
+                {Math.min(nextLimit, filteredPostsCount)}件まで表示
+                {selectedLimit >= filteredPostsCount ? "" : "できます"}
+              </span>
+            </div>
           )}
         </>
       )}
