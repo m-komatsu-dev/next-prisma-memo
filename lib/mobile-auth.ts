@@ -105,13 +105,22 @@ export async function refreshMobileApiSession(refreshToken: string) {
 
   const nextRefreshToken = createRefreshToken();
 
-  await prisma.apiSession.update({
+  const result = await prisma.apiSession.updateMany({
     data: {
       lastUsedAt: now,
       refreshTokenHash: hashMobileRefreshToken(nextRefreshToken),
     },
-    where: { id: apiSession.id },
+    where: {
+      expiresAt: { gt: now },
+      id: apiSession.id,
+      refreshTokenHash,
+      revokedAt: null,
+    },
   });
+
+  if (result.count === 0) {
+    return null;
+  }
 
   const accessToken = await createMobileSessionAccessToken(
     apiSession.userId,

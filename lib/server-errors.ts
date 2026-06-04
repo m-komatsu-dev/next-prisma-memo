@@ -9,11 +9,51 @@ type ServerErrorContext = {
   details?: LogDetails;
 };
 
+const REDACTED = "[redacted]";
+const SENSITIVE_KEY_PATTERN =
+  /(authorization|cookie|token|secret|password|api[-_]?key|database[_-]?url|direct[_-]?url|connection|credential)/i;
+const SENSITIVE_VALUE_PATTERNS = [
+  /Bearer\s+[A-Za-z0-9._~+/-]+=*/gi,
+  /postgres(?:ql)?:\/\/[^\s"'<>]+/gi,
+  /mysql:\/\/[^\s"'<>]+/gi,
+  /mongodb(?:\+srv)?:\/\/[^\s"'<>]+/gi,
+  /AIza[0-9A-Za-z_-]{20,}/g,
+  /(?:AUTH|MOBILE_AUTH|GEMINI|GOOGLE|GITHUB|EXPO|CRON|DATABASE|DIRECT)[A-Z0-9_]*\s*=\s*["']?[^"'\s]+/gi,
+];
+
+function redactString(value: string) {
+  return SENSITIVE_VALUE_PATTERNS.reduce(
+    (redacted, pattern) => redacted.replace(pattern, REDACTED),
+    value,
+  );
+}
+
+function sanitizeForLog(value: unknown): unknown {
+  if (typeof value === "string") {
+    return redactString(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(sanitizeForLog);
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, nestedValue]) => [
+      key,
+      SENSITIVE_KEY_PATTERN.test(key) ? REDACTED : sanitizeForLog(nestedValue),
+    ]),
+  );
+}
+
 function serialize(value: unknown) {
   try {
-    return JSON.parse(JSON.stringify(value));
+    return sanitizeForLog(JSON.parse(JSON.stringify(value)));
   } catch {
-    return String(value);
+    return redactString(String(value));
   }
 }
 
@@ -21,24 +61,24 @@ function normalizeError(error: unknown) {
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     return {
       name: error.name,
-      message: error.message,
+      message: redactString(error.message),
       code: error.code,
       meta: serialize(error.meta),
-      stack: error.stack,
+      stack: error.stack ? redactString(error.stack) : undefined,
     };
   }
 
   if (error instanceof Error) {
     return {
       name: error.name,
-      message: error.message,
-      stack: error.stack,
+      message: redactString(error.message),
+      stack: error.stack ? redactString(error.stack) : undefined,
     };
   }
 
   return {
     name: "UnknownError",
-    message: String(error),
+    message: redactString(String(error)),
   };
 }
 
@@ -47,7 +87,7 @@ export function logServerError(error: unknown, context: ServerErrorContext) {
     JSON.stringify({
       level: "error",
       timestamp: new Date().toISOString(),
-      context,
+      context: sanitizeForLog(context),
       error: normalizeError(error),
     }),
   );

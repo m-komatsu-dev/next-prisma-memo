@@ -134,7 +134,7 @@ function getAuthUrlDetails(authUrl: string | undefined) {
 }
 
 function logAuthRuntimeConfiguration() {
-  if (process.env.NODE_ENV !== "production" && process.env.AUTH_DEBUG !== "true") {
+  if (process.env.AUTH_DEBUG !== "true") {
     return;
   }
 
