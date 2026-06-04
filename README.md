@@ -126,9 +126,27 @@ Expo Mobile App
 | `npm run lint` | ESLint |
 | `npm run build` | Next.js本番ビルド |
 | `npm run test:e2e` | Playwright E2Eテスト |
+| `npm run test:e2e:ui` | Playwright UIモード |
+| `npm run test:e2e:headed` | ブラウザ表示ありのPlaywright E2Eテスト |
 | `npm audit --audit-level=high` | high以上の脆弱性チェック |
 
-Vitestでは、権限判定、Zodスキーマ、Todo変換、AIモード、モバイル認証、サーバーエラー処理などを確認しています。Playwrightでは、登録、ログイン、メモ作成、編集、削除、ログアウトなどのWebユーザーフローを検証します。
+Vitestでは、権限判定、Zodスキーマ、Todo変換、AIモード、モバイル認証、サーバーエラー処理などを確認しています。Playwrightでは、未ログイン時の保護ページリダイレクト、ログイン、メモ一覧、通常メモ作成、Todo作成、詳細表示、編集、削除、ログアウトのWebユーザーフローを検証します。
+
+Playwright E2Eをローカルで実行する場合は、本番ではないPostgreSQLを `DATABASE_URL` に設定し、`.env.test` にテスト用ユーザーを指定します。`E2E_TEST_EMAIL` は誤削除防止のため `e2e-` を含めてください。E2Eのglobal setupがユーザーを作成し、global teardownがユーザーと `e2e-` prefixのテストデータを削除します。
+
+```env
+E2E_TEST_EMAIL="e2e-user@example.invalid"
+E2E_TEST_PASSWORD="replace-with-a-local-test-password"
+```
+
+初回またはブラウザ未インストール環境では、先にPlaywrightのChromiumを入れてください。
+
+```bash
+npx playwright install chromium
+npm run test:e2e
+```
+
+詳細は [E2E_REPORT.md](E2E_REPORT.md) を参照してください。
 
 ## スクリーンショット
 
@@ -200,6 +218,9 @@ AUTH_GITHUB_SECRET="your-github-client-secret"
 
 GEMINI_API_KEY="your-gemini-api-key"
 GEMINI_MODEL="gemini-2.5-flash"
+
+E2E_TEST_EMAIL="e2e-user@example.invalid"
+E2E_TEST_PASSWORD="replace-with-a-local-test-password"
 ```
 
 モバイル版をローカルAPIへ接続する場合は、`mobile/.env.example` を参考に `mobile/.env` を作成します。
@@ -257,6 +278,8 @@ Expo Goまたはシミュレーターで確認します。
 | `GEMINI_API_KEY` | AI利用時 | Gemini API |
 | `GEMINI_MODEL` | 任意 | 利用するGeminiモデル |
 | `EXPO_PUBLIC_API_BASE_URL` | Mobile利用時 | Expoアプリの接続先API URL |
+| `E2E_TEST_EMAIL` | E2E実行時 | Playwrightが作成・削除するテストユーザー。`e2e-` を含める |
+| `E2E_TEST_PASSWORD` | E2E実行時 | Playwrightテストユーザーのパスワード |
 
 `.env`、`.env.test`、`mobile/.env`、`mobile/.env.local` は秘密情報やローカル環境の接続先を含むためコミットしないでください。`EXPO_PUBLIC_` で始まる値はアプリに埋め込まれる公開値なので、APIキーやトークンは入れないでください。
 
