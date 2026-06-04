@@ -27,10 +27,12 @@ model User {
 }
 
 model Post {
-  id        Int     @id @default(autoincrement())
-  title     String
-  content   String
-  published Boolean @default(false)
+  id            Int       @id @default(autoincrement())
+  title         String
+  content       String
+  published     Boolean   @default(false)
+  kind          String    @default("text")
+  todoListDueAt DateTime?
 
   authorId String
   author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
@@ -44,6 +46,8 @@ model Post {
   @@index([authorId]) // ← パフォーマンス + DoS耐性
   @@index([authorId, updatedAt])
   @@index([authorId, createdAt])
+  @@index([kind])
+  @@index([todoListDueAt])
 }
 
 model TodoItem {

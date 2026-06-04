@@ -87,6 +87,10 @@ function isMobilePostAccessRole(
   );
 }
 
+function normalizeMobilePostKind(value: unknown): MobilePost["kind"] {
+  return value === "dueTodo" ? "dueTodo" : "text";
+}
+
 function isMobileTodoItem(value: unknown): value is MobileTodoItem {
   return (
     isRecord(value) &&
@@ -196,9 +200,11 @@ function normalizeMobilePost(value: unknown): MobilePost | null {
     content: value.content,
     createdAt: normalizeDateString(value.createdAt),
     id: value.id,
+    kind: normalizeMobilePostKind(value.kind),
     published: typeof value.published === "boolean" ? value.published : false,
     tags: normalizeMobilePostTags(value.tags),
     title: value.title,
+    todoListDueAt: normalizeNullableDateString(value.todoListDueAt),
     todoItems: Array.isArray(value.todoItems)
       ? value.todoItems.flatMap((todoItem) => {
           const normalizedTodoItem = normalizeMobileTodoItem(todoItem);

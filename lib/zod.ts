@@ -100,6 +100,34 @@ const aiContentSchema = safeString("本文", 12_000);
 const termsAcceptedValueSchema = z
   .string({ error: "利用規約への同意が必要です。" })
   .refine((value) => value === "on", "利用規約への同意が必要です。");
+const postKindSchema = z.enum(["text", "dueTodo"], {
+  error: "メモ種別の形式が正しくありません。",
+});
+
+const nullableDateTimeSchema = (fieldName: string) => z.preprocess((value) => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? value : value;
+  }
+
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const normalized = trimmed.includes("T")
+    ? trimmed
+    : trimmed.replace(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})$/, "$1T$2");
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? value : date;
+}, z.date({ error: `${fieldName}の形式が正しくありません。` }).nullable());
 
 const tagsInputSchema = safeString("タグ", 500)
   .transform((value) =>
@@ -208,6 +236,8 @@ const postPayloadBaseSchema = z.object({
   title: postTitleSchema,
   content: postContentSchema,
   tags: tagsInputSchema,
+  kind: postKindSchema.optional().default("text"),
+  todoListDueAt: nullableDateTimeSchema("Todoリスト全体の期限").optional(),
 });
 
 export const postDraftPayloadSchema = postPayloadBaseSchema.extend({
@@ -271,26 +301,51 @@ export const revokePostShareFormSchema = postIdFormSchema.extend({
   shareId: postShareIdValueSchema,
 });
 
-const nullableDateTimeSchema = (fieldName: string) => z.preprocess((value) => {
-  if (value === null || value === undefined) {
-    return null;
-  }
-
-  if (typeof value !== "string") {
-    return value;
-  }
-
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const date = new Date(trimmed);
-  return Number.isNaN(date.getTime()) ? value : date;
-}, z.date({ error: `${fieldName}の形式が正しくありません。` }).nullable());
-
 const todoItemDueAtSchema = nullableDateTimeSchema("期限");
 const todoItemReminderAtSchema = nullableDateTimeSchema("リマインダー");
+
+export const dueTodoListCreateSchema = z
+  .object({
+    title: postTitleSchema.transform((value) => value.trim()),
+    tags: z.preprocess((value) => value ?? "", tagsInputSchema),
+    todoListDueAt: nullableDateTimeSchema("Todoリスト全体の期限"),
+    items: z
+      .array(
+        z.object({
+          text: todoItemTextSchema,
+          dueAt: todoItemDueAtSchema,
+        }),
+      )
+      .min(1, "Todo項目を1件以上追加してください。")
+      .max(50, "Todo項目は50件以内で入力してください。"),
+  })
+  .superRefine((payload, ctx) => {
+    if (!payload.title) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["title"],
+        message: "Todoリストのタイトルを入力してください。",
+      });
+    }
+
+    if (!payload.todoListDueAt) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["todoListDueAt"],
+        message: "Todoリスト全体の期限を入力してください。",
+      });
+    }
+
+    payload.items.forEach((item, index) => {
+      if (!item.dueAt) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["items", index, "dueAt"],
+          message: "各Todo項目の期限を入力してください。",
+        });
+      }
+    });
+  });
 
 export const createTodoItemSchema = postIdFormSchema.extend({
   text: todoItemTextSchema,
@@ -406,6 +461,8 @@ export type PostDraftPayloadInput = {
   content: string;
   tags: string;
   published?: boolean;
+  kind?: "text" | "dueTodo";
+  todoListDueAt?: string | Date | null;
 };
 
 export type PostSavePayloadInput = PostDraftPayloadInput & {

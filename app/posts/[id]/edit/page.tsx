@@ -53,6 +53,8 @@ export default async function EditPost({ params }: { params: Promise<{ id: strin
           content: post.content,
           tags: post.tags.map((tag) => tag.name).join(", "),
           published: post.published,
+          kind: post.kind as "text" | "dueTodo",
+          todoListDueAt: post.todoListDueAt?.toISOString().slice(0, 16) ?? null,
           todoNowIso: new Date().toISOString(),
           todoItems: post.todoItems.map((todoItem) => ({
             completed: todoItem.completed,
