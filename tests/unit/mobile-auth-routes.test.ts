@@ -43,6 +43,7 @@ function createJsonRequest(path: string, body: unknown) {
 describe("mobile auth API", () => {
   beforeEach(() => {
     process.env.AUTH_SECRET = "test-secret-for-mobile-auth-route-tests";
+    process.env.MOBILE_AUTH_SECRET = "test-mobile-secret-for-mobile-auth-route-tests";
     authMock.mockResolvedValue(null);
     vi.clearAllMocks();
   });
@@ -192,7 +193,7 @@ describe("mobile auth API", () => {
       .setJti("api-session-1")
       .setIssuedAt()
       .setExpirationTime(Math.floor(Date.now() / 1000) - 60)
-      .sign(new TextEncoder().encode(process.env.AUTH_SECRET!));
+      .sign(new TextEncoder().encode(process.env.MOBILE_AUTH_SECRET!));
 
     const response = await GET(
       new Request("http://localhost:3000/api/mobile/posts", {
@@ -212,7 +213,7 @@ describe("mobile auth API", () => {
       .setJti("api-session-1")
       .setIssuedAt()
       .setExpirationTime("5m")
-      .sign(new TextEncoder().encode(process.env.AUTH_SECRET!));
+      .sign(new TextEncoder().encode(process.env.MOBILE_AUTH_SECRET!));
 
     prismaMock.apiSession.findUnique.mockResolvedValue({
       expiresAt: new Date(Date.now() + 60_000),
@@ -229,5 +230,32 @@ describe("mobile auth API", () => {
     );
 
     expect(user).toEqual({ id: "user-1" });
+  });
+
+  it("rejects a valid Bearer token when its ApiSession is revoked", async () => {
+    const { getMobileAuthUser } = await import("@/lib/mobile-auth");
+    const token = await new SignJWT({})
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("user-1")
+      .setJti("api-session-1")
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(new TextEncoder().encode(process.env.MOBILE_AUTH_SECRET!));
+
+    prismaMock.apiSession.findUnique.mockResolvedValue({
+      expiresAt: new Date(Date.now() + 60_000),
+      revokedAt: new Date(),
+      user: { id: "user-1" },
+      userId: "user-1",
+    });
+
+    const user = await getMobileAuthUser(
+      new Request("http://localhost:3000/api/mobile/posts", {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+    );
+
+    expect(user).toBeNull();
+    expect(prismaMock.apiSession.update).not.toHaveBeenCalled();
   });
 });
