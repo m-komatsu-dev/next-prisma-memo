@@ -2,20 +2,20 @@
 
 import { useState, useTransition } from "react";
 import type { KeyboardEvent } from "react";
-import {
-  createTodoItem,
-  deleteTodoItem,
-  toggleTodoItem,
-  updateTodoItem,
-} from "@/app/posts/[id]/todo-actions";
+import { createTodoItem } from "@/app/posts/[id]/todo-actions";
 import type { PostFormTodoItem } from "@/components/post-form/types";
 import {
-  getTodoDueDisplay,
-  getTodoReminderDisplay,
   matchesTodoItemFilter,
   todoItemFilterOptions,
   type TodoItemFilter,
 } from "@/components/todo-items-utils";
+import {
+  buildTodoFormData,
+  initialTodoActionState,
+  isComposingEnter,
+  type TodoActionState,
+} from "@/components/todo-items/helpers";
+import { TodoItemRow } from "@/components/todo-items/todo-item-row";
 
 type TodoItemView = PostFormTodoItem;
 
@@ -30,278 +30,6 @@ type TodoItemsPanelProps = {
   todoItems: TodoItemView[];
 };
 
-type TodoActionState = {
-  message?: string;
-  success: boolean;
-};
-
-const initialActionState: TodoActionState = { success: true };
-
-function buildTodoFormData(values: Record<string, number | string | null>) {
-  const formData = new FormData();
-
-  for (const [key, value] of Object.entries(values)) {
-    formData.set(key, value === null ? "" : String(value));
-  }
-
-  return formData;
-}
-
-function isComposingEnter(event: KeyboardEvent<HTMLInputElement>) {
-  return event.nativeEvent.isComposing || event.keyCode === 229;
-}
-
-function toDateTimeLocalValue(value: string | null) {
-  if (!value) {
-    return "";
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return offsetDate.toISOString().slice(0, 16);
-}
-
-function TodoItemRow({
-  canEdit,
-  forceDueTodo,
-  nowTime,
-  postId,
-  onTodoChange,
-  todoItem,
-}: {
-  canEdit: boolean;
-  forceDueTodo: boolean;
-  nowTime: number;
-  onTodoChange: (todoItem: TodoItemView) => void;
-  postId: number | null;
-  todoItem: TodoItemView;
-}) {
-  const [updateState, setUpdateState] = useState<TodoActionState>(initialActionState);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editText, setEditText] = useState(todoItem.text);
-  const [editDueAt, setEditDueAt] = useState(toDateTimeLocalValue(todoItem.dueAt));
-  const [editReminderAt, setEditReminderAt] = useState(
-    toDateTimeLocalValue(todoItem.reminderAt),
-  );
-  const [isPending, startTransition] = useTransition();
-  const dueDisplay = getTodoDueDisplay(todoItem.dueAt, nowTime);
-  const isOverdue = dueDisplay.isOverdue && !todoItem.completed;
-  const reminderDisplay = getTodoReminderDisplay(
-    todoItem.reminderAt,
-    todoItem.reminderSentAt,
-    todoItem.completed,
-    nowTime,
-  );
-
-  const handleToggle = () => {
-    if (!postId) return;
-
-    const formData = buildTodoFormData({
-      completed: todoItem.completed ? "false" : "true",
-      postId,
-      todoItemId: todoItem.id,
-    });
-
-    startTransition(async () => {
-      const result = await toggleTodoItem(formData);
-      setUpdateState(result);
-      if (result.success && result.todoItem) {
-        onTodoChange(result.todoItem);
-      }
-    });
-  };
-
-  const handleUpdate = () => {
-    if (!postId) return;
-
-    if (forceDueTodo && !editDueAt) {
-      setUpdateState({ success: false, message: "期限付きTodoでは期限日時を入力してください。" });
-      return;
-    }
-
-    const formData = buildTodoFormData({
-      dueAt: editDueAt,
-      postId,
-      reminderAt: editReminderAt,
-      text: editText,
-      todoItemId: todoItem.id,
-    });
-
-    startTransition(async () => {
-      const result = await updateTodoItem(initialActionState, formData);
-      setUpdateState(result);
-      if (result.success && result.todoItem) {
-        onTodoChange(result.todoItem);
-        setIsEditing(false);
-      }
-    });
-  };
-
-  const handleDelete = () => {
-    if (!postId) return;
-
-    const formData = buildTodoFormData({
-      postId,
-      todoItemId: todoItem.id,
-    });
-
-    startTransition(async () => {
-      const result = await deleteTodoItem(formData);
-      setUpdateState(result);
-      if (result.success) {
-        onTodoChange({ ...todoItem, text: "" });
-      }
-    });
-  };
-
-  const handleEditKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== "Enter") return;
-    if (isComposingEnter(event)) return;
-    event.preventDefault();
-    handleUpdate();
-  };
-
-  return (
-    <li
-      className={[
-        "todo-items__row",
-        todoItem.completed ? "todo-items__row--completed" : "",
-        isOverdue ? "todo-items__row--overdue" : "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      <div className="todo-items__toggle-form">
-        <button
-          type="button"
-          className="todo-items__check"
-          onClick={handleToggle}
-          aria-label={todoItem.completed ? "未完了にする" : "完了にする"}
-          aria-pressed={todoItem.completed}
-          disabled={!canEdit || isPending}
-        >
-          {todoItem.completed ? "✓" : ""}
-        </button>
-      </div>
-
-      <div className="todo-items__body">
-        {isEditing ? (
-          <div className="todo-items__edit-form">
-            <label>
-              <span>Todo</span>
-              <input
-                value={editText}
-                onChange={(event) => setEditText(event.target.value)}
-                onKeyDown={handleEditKeyDown}
-                disabled={!canEdit || isPending}
-                maxLength={500}
-              />
-            </label>
-            <label>
-              <span>期限</span>
-              <input
-                type="datetime-local"
-                value={editDueAt}
-                onChange={(event) => setEditDueAt(event.target.value)}
-                onKeyDown={handleEditKeyDown}
-                disabled={!canEdit || isPending}
-              />
-            </label>
-            <label>
-              <span>通知予定</span>
-              <input
-                type="datetime-local"
-                value={editReminderAt}
-                onChange={(event) => setEditReminderAt(event.target.value)}
-                onKeyDown={handleEditKeyDown}
-                disabled={!canEdit || isPending}
-              />
-            </label>
-            <div className="todo-items__edit-actions">
-              <button
-                type="button"
-                className="todo-items__button todo-items__button--ghost"
-                onClick={() => setIsEditing(false)}
-                disabled={isPending}
-              >
-                閉じる
-              </button>
-              <button
-                type="button"
-                className="todo-items__button"
-                onClick={handleUpdate}
-                disabled={!canEdit || isPending}
-              >
-                保存
-              </button>
-            </div>
-            {!updateState.success && updateState.message && (
-              <p className="todo-items__message" role="alert">
-                {updateState.message}
-              </p>
-            )}
-          </div>
-        ) : (
-          <>
-            <p className="todo-items__text">{todoItem.text}</p>
-            {todoItem.dueAt && (
-              <span
-                className={[
-                  "todo-items__due",
-                  isOverdue ? "todo-items__due--overdue" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-              >
-                {dueDisplay.label}
-              </span>
-            )}
-            {todoItem.reminderAt && (
-              <span
-                className={[
-                  "todo-items__due",
-                  reminderDisplay.isUnsentOverdue ? "todo-items__due--overdue" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-              >
-                {reminderDisplay.label}
-              </span>
-            )}
-          </>
-        )}
-      </div>
-
-      <div className="todo-items__actions">
-        <button
-          type="button"
-          className="todo-items__icon-button"
-          onClick={() => setIsEditing((current) => !current)}
-          disabled={!canEdit}
-          title="編集"
-        >
-          編集
-        </button>
-        <div className="todo-items__delete-form">
-          <button
-            type="button"
-            className="todo-items__icon-button todo-items__icon-button--danger"
-            onClick={handleDelete}
-            disabled={!canEdit || isPending}
-            title="削除"
-          >
-            削除
-          </button>
-        </div>
-      </div>
-    </li>
-  );
-}
-
 export default function TodoItemsPanel({
   canEdit,
   embedded = false,
@@ -312,7 +40,9 @@ export default function TodoItemsPanel({
   postId,
   todoItems,
 }: TodoItemsPanelProps) {
-  const [createState, setCreateState] = useState<TodoActionState>(initialActionState);
+  const [createState, setCreateState] = useState<TodoActionState>(
+    initialTodoActionState,
+  );
   const [activePostId, setActivePostId] = useState(postId);
   const [items, setItems] = useState(todoItems);
   const [newText, setNewText] = useState("");
@@ -324,6 +54,7 @@ export default function TodoItemsPanel({
   const [activeFilter, setActiveFilter] = useState<TodoItemFilter>("all");
   const [isCreating, startCreateTransition] = useTransition();
   const nowTime = new Date(nowIso).getTime();
+  const activeTodoKind = forceDueTodo ? "due" : todoKind;
   const filteredItems = items.filter((todoItem) =>
     matchesTodoItemFilter(todoItem, activeFilter, nowTime),
   );
@@ -334,12 +65,18 @@ export default function TodoItemsPanel({
         return currentItems.filter((item) => item.id !== nextTodoItem.id);
       }
 
-      const existingIndex = currentItems.findIndex((item) => item.id === nextTodoItem.id);
+      const existingIndex = currentItems.findIndex(
+        (item) => item.id === nextTodoItem.id,
+      );
       if (existingIndex === -1) {
-        return [...currentItems, nextTodoItem].sort((a, b) => a.position - b.position || a.id - b.id);
+        return [...currentItems, nextTodoItem].sort(
+          (a, b) => a.position - b.position || a.id - b.id,
+        );
       }
 
-      return currentItems.map((item) => (item.id === nextTodoItem.id ? nextTodoItem : item));
+      return currentItems.map((item) =>
+        item.id === nextTodoItem.id ? nextTodoItem : item,
+      );
     });
   };
 
@@ -349,9 +86,7 @@ export default function TodoItemsPanel({
       return;
     }
 
-    const nextTodoKind = forceDueTodo ? "due" : todoKind;
-
-    if (nextTodoKind === "due" && !newDueAt) {
+    if (activeTodoKind === "due" && !newDueAt) {
       setCreateState({ success: false, message: "期限日時を入力してください。" });
       return;
     }
@@ -361,7 +96,10 @@ export default function TodoItemsPanel({
 
       if (!ensuredPostId) {
         if (!onEnsurePostId) {
-          setCreateState({ success: false, message: "下書きメモを作成できませんでした。" });
+          setCreateState({
+            success: false,
+            message: "下書きメモを作成できませんでした。",
+          });
           return;
         }
 
@@ -382,12 +120,12 @@ export default function TodoItemsPanel({
       setActivePostId(ensuredPostId);
 
       const formData = buildTodoFormData({
-        dueAt: nextTodoKind === "due" ? newDueAt : null,
+        dueAt: activeTodoKind === "due" ? newDueAt : null,
         postId: ensuredPostId,
-        reminderAt: nextTodoKind === "due" ? newReminderAt : null,
+        reminderAt: activeTodoKind === "due" ? newReminderAt : null,
         text: newText.trim(),
       });
-      const result = await createTodoItem(initialActionState, formData);
+      const result = await createTodoItem(initialTodoActionState, formData);
       setCreateState(result);
       if (result.success && result.todoItem) {
         replaceTodoItem(result.todoItem);
@@ -397,7 +135,6 @@ export default function TodoItemsPanel({
       }
     });
   };
-  const activeTodoKind = forceDueTodo ? "due" : todoKind;
 
   const handleCreateKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter") return;
@@ -415,7 +152,9 @@ export default function TodoItemsPanel({
       <div className="todo-items__header">
         <div>
           <p className="todo-items__eyebrow">Todos</p>
-          <h2 id={embedded ? "editor-todo-items-title" : "todo-items-title"}>このメモのTodo</h2>
+          <h2 id={embedded ? "editor-todo-items-title" : "todo-items-title"}>
+            このメモのTodo
+          </h2>
         </div>
         {!canEdit && <span className="memo-badge">閲覧のみ</span>}
       </div>

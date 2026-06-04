@@ -167,6 +167,7 @@ async function getUserFromBearerToken(request: Request) {
       return null;
     }
 
+    // The JWT id is bound to an active API session so stolen/rotated refresh tokens can be revoked server-side.
     const apiSession = await prisma.apiSession.findUnique({
       where: { id: payload.jti },
       select: {

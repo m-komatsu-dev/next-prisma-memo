@@ -1,9 +1,8 @@
 import { createMobileApiSession } from "@/lib/mobile-auth";
 import { withMobileCors } from "@/lib/mobile-cors";
-import { prisma } from "@/lib/prisma";
+import { verifyCredentialsUser } from "@/lib/credentials-auth";
 import { logServerError } from "@/lib/server-errors";
 import { loginSchema } from "@/lib/zod";
-import bcrypt from "bcrypt";
 import { NextResponse } from "next/server";
 
 const invalidCredentialsResponse = {
@@ -40,26 +39,9 @@ export async function POST(request: Request) {
   const { email, password } = validatedFields.data;
 
   try {
-    const user = await prisma.user.findUnique({
-      where: { email },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        password: true,
-      },
-    });
+    const user = await verifyCredentialsUser({ email, password });
 
-    if (!user?.password) {
-      return withMobileCors(
-        request,
-        NextResponse.json(invalidCredentialsResponse, { status: 401 }),
-      );
-    }
-
-    const isValid = await bcrypt.compare(password, user.password);
-
-    if (!isValid) {
+    if (!user) {
       return withMobileCors(
         request,
         NextResponse.json(invalidCredentialsResponse, { status: 401 }),

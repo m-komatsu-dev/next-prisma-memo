@@ -6,6 +6,11 @@ import {
   getPostAccessRole,
 } from "@/lib/post-permissions";
 import { prisma } from "@/lib/prisma";
+import {
+  MOBILE_CALENDAR_TODO_LIMIT,
+  TODO_LIST_MAX_LIMIT,
+  resolveListLimit,
+} from "@/lib/list-query";
 import { logServerError } from "@/lib/server-errors";
 import { serializeTodoItem } from "@/lib/todo-item-response";
 import { NextResponse } from "next/server";
@@ -25,6 +30,12 @@ export async function GET(request: Request) {
   }
 
   try {
+    const { searchParams } = new URL(request.url);
+    const limit = resolveListLimit(
+      searchParams.get("limit"),
+      MOBILE_CALENDAR_TODO_LIMIT,
+      TODO_LIST_MAX_LIMIT,
+    );
     const todoItems = await prisma.todoItem.findMany({
       where: {
         dueAt: { not: null },
@@ -53,7 +64,14 @@ export async function GET(request: Request) {
           },
         },
       },
-      orderBy: [{ dueAt: "asc" }, { completed: "asc" }, { position: "asc" }],
+      orderBy: [
+        { dueAt: "asc" },
+        { completed: "asc" },
+        { postId: "asc" },
+        { position: "asc" },
+        { id: "asc" },
+      ],
+      take: limit,
     });
 
     const todos = todoItems.map((todoItem) => {

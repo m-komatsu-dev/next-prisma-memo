@@ -29,6 +29,7 @@ export type MobilePost = {
   title: string;
   content: string;
   todoItems?: MobileTodoItem[];
+  todoItemsCount?: number;
   todoListDueAt: string | null;
   published: boolean;
   createdAt: string;

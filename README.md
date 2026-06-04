@@ -285,8 +285,8 @@ cd ..
 ```env
 DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
 AUTH_SECRET="long-random-secret"
+AUTH_URL="http://localhost:3000"
 AUTH_TRUST_HOST="true"
-AUTH_URL="https://your-production-origin.example"
 
 MOBILE_AUTH_SECRET="long-random-mobile-secret"
 DATABASE_POOL_MAX="5"
@@ -307,6 +307,9 @@ EXPO_PUBLIC_API_BASE_URL=http://localhost:3000
 ```
 
 詳しくは [mobile/README.md](mobile/README.md) を参照してください。
+
+ローカルと本番の環境変数の使い分けは [ENVIRONMENT.md](ENVIRONMENT.md) も参照してください。
+GitHubログインをローカルで使う場合、GitHub OAuth App の callback URL は `http://localhost:3000/api/auth/callback/github` にします。本番用OAuth Appと併用する場合は、ローカル用に別のGitHub OAuth Appを作成してください。
 
 ### 5. Prisma Client生成とDB同期
 
@@ -359,8 +362,8 @@ Expo Goまたはシミュレーターで確認します。
 | --- | --- | --- |
 | `DATABASE_URL` | 必須 | PostgreSQL接続文字列 |
 | `AUTH_SECRET` | 必須 | Auth.js / NextAuthの署名 |
-| `AUTH_TRUST_HOST` | 本番推奨 | VercelなどでAuth.jsのhostを信頼 |
-| `AUTH_URL` | 本番推奨 | 本番URLのoriginのみ。pathは含めない |
+| `AUTH_URL` | 必須 | ローカルは `http://localhost:3000`。本番はoriginのみ。pathは含めない |
+| `AUTH_TRUST_HOST` | 必須 | Auth.jsのhostを信頼 |
 | `MOBILE_AUTH_SECRET` | 推奨 | モバイルBearer Tokenの署名 |
 | `DATABASE_POOL_MAX` | 任意 | PostgreSQL接続プール上限 |
 | `AUTH_GOOGLE_ID` | OAuth利用時 | Google OAuth |

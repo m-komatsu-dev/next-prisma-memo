@@ -2,6 +2,12 @@ import { getMobileAuthUser } from "@/lib/mobile-auth";
 import { serializeMobilePost } from "@/lib/mobile-post-response";
 import { buildTagsConnectOrCreate } from "@/lib/post-tags";
 import { mobileCorsOptions, withMobileCors } from "@/lib/mobile-cors";
+import {
+  createMemoPreview,
+  MOBILE_MEMO_LIST_LIMIT,
+  MEMO_LIST_MAX_LIMIT,
+  resolveListLimit,
+} from "@/lib/list-query";
 import { getMemoListPostSelect, getPostDetailSelect } from "@/lib/post-selects";
 import { getMobileAccessiblePostsWhere } from "@/lib/post-permissions";
 import { prisma } from "@/lib/prisma";
@@ -27,16 +33,31 @@ export async function GET(request: Request) {
   }
 
   try {
+    const { searchParams } = new URL(request.url);
+    const limit = resolveListLimit(
+      searchParams.get("limit"),
+      MOBILE_MEMO_LIST_LIMIT,
+      MEMO_LIST_MAX_LIMIT,
+    );
     const posts = await prisma.post.findMany({
       where: getMobileAccessiblePostsWhere(authUser.id),
       select: getMemoListPostSelect(authUser.id),
       orderBy: { updatedAt: "desc" },
+      take: limit,
     });
 
     return withMobileCors(
       request,
       NextResponse.json({
-        posts: posts.map((post) => serializeMobilePost(post, authUser.id)),
+        posts: posts.map((post) =>
+          serializeMobilePost(
+            {
+              ...post,
+              content: createMemoPreview(post.content).content,
+            },
+            authUser.id,
+          ),
+        ),
       }),
     );
   } catch (error) {

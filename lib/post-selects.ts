@@ -1,4 +1,5 @@
 import type { Prisma } from "@/app/generated/prisma";
+import { TODO_ITEM_PREVIEW_LIMIT } from "@/lib/list-query";
 
 const postTagsSelect = {
   select: {
@@ -23,6 +24,23 @@ const todoItemsSelect = {
   orderBy: [{ position: "asc" }, { createdAt: "asc" }],
 } satisfies Prisma.PostSelect["todoItems"];
 
+const todoItemsPreviewSelect = {
+  select: {
+    id: true,
+    postId: true,
+    text: true,
+    completed: true,
+    dueAt: true,
+    reminderAt: true,
+    reminderSentAt: true,
+    position: true,
+    createdAt: true,
+    updatedAt: true,
+  },
+  orderBy: [{ position: "asc" }, { id: "asc" }],
+  take: TODO_ITEM_PREVIEW_LIMIT,
+} satisfies Prisma.PostSelect["todoItems"];
+
 export function getMemoListPostSelect(userId: string) {
   return {
     id: true,
@@ -35,9 +53,15 @@ export function getMemoListPostSelect(userId: string) {
     createdAt: true,
     updatedAt: true,
     tags: postTagsSelect,
-    todoItems: todoItemsSelect,
+    todoItems: todoItemsPreviewSelect,
+    _count: {
+      select: {
+        todoItems: true,
+      },
+    },
     shares: {
       where: { userId },
+      take: 1,
       select: {
         role: true,
       },
@@ -60,6 +84,7 @@ export function getPostDetailSelect(userId: string) {
     todoItems: todoItemsSelect,
     shares: {
       where: { userId },
+      take: 1,
       select: {
         role: true,
       },
@@ -84,6 +109,7 @@ export function getPostEditorSelect(userId: string) {
     todoItems: todoItemsSelect,
     shares: {
       where: { userId, role: "editor" },
+      take: 1,
       select: {
         role: true,
       },
