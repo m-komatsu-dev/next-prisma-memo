@@ -100,7 +100,7 @@
   - 実 env は ignore、example は追跡可能であることを確認しました。
 
 - `npm run test`
-  - 11 files / 68 tests passed.
+  - 13 files / 76 tests passed.
 
 - `npm run lint`
   - passed.
