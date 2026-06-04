@@ -237,23 +237,21 @@ export default async function PostsPage({ searchParams }: PostsPageProps) {
 
   try {
     const selectedWhere = getPostsWhere(selectedFilter, userId);
-    const [nextPosts, nextFilteredPostsCount, nextAccessiblePostsCount] =
-      await prisma.$transaction([
-        prisma.post.findMany({
-          where: selectedWhere,
-          select: getMemoListPostSelect(userId),
-          orderBy: getPostsOrderBy(selectedSort),
-          take: selectedLimit + 1,
-        }),
-        prisma.post.count({
-          where: selectedWhere,
-        }),
-        selectedFilter === "all"
-          ? prisma.post.count({ where: selectedWhere })
-          : prisma.post.count({
-              where: getPostsWhere("all", userId),
-            }),
-      ]);
+    const nextPosts = await prisma.post.findMany({
+      where: selectedWhere,
+      select: getMemoListPostSelect(userId),
+      orderBy: getPostsOrderBy(selectedSort),
+      take: selectedLimit + 1,
+    });
+    const nextFilteredPostsCount = await prisma.post.count({
+      where: selectedWhere,
+    });
+    const nextAccessiblePostsCount =
+      selectedFilter === "all"
+        ? nextFilteredPostsCount
+        : await prisma.post.count({
+            where: getPostsWhere("all", userId),
+          });
 
     hasMorePosts = nextPosts.length > selectedLimit;
     posts = nextPosts.slice(0, selectedLimit);

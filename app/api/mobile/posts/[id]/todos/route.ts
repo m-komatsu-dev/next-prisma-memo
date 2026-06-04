@@ -1,5 +1,6 @@
 import { getMobileAuthUser } from "@/lib/mobile-auth";
-import { mobileCorsOptions, withMobileCors } from "@/lib/mobile-cors";
+import { mobileError, mobileJson } from "@/lib/mobile-api-response";
+import { mobileCorsOptions } from "@/lib/mobile-cors";
 import {
   getEditablePostWhere,
   getMobileReadablePostWhere,
@@ -12,7 +13,6 @@ import {
   mobileCreateTodoItemSchema,
   postIdValueSchema,
 } from "@/lib/zod";
-import { NextResponse } from "next/server";
 
 type MobileTodoItemsRouteContext = {
   params: Promise<{
@@ -28,23 +28,14 @@ export async function GET(request: Request, { params }: MobileTodoItemsRouteCont
   const authUser = await getMobileAuthUser(request);
 
   if (!authUser) {
-    return withMobileCors(
-      request,
-      NextResponse.json({ error: "ログインが必要です。" }, { status: 401 }),
-    );
+    return mobileError(request, "ログインが必要です。", 401);
   }
 
   const { id } = await params;
   const validatedPostId = postIdValueSchema.safeParse(id);
 
   if (!validatedPostId.success) {
-    return withMobileCors(
-      request,
-      NextResponse.json(
-        { error: "メモIDの形式が正しくありません。" },
-        { status: 400 },
-      ),
-    );
+    return mobileError(request, "メモIDの形式が正しくありません。", 400);
   }
 
   const postId = validatedPostId.data;
@@ -56,10 +47,7 @@ export async function GET(request: Request, { params }: MobileTodoItemsRouteCont
     });
 
     if (!post) {
-      return withMobileCors(
-        request,
-        NextResponse.json({ error: "メモが見つかりません。" }, { status: 404 }),
-      );
+      return mobileError(request, "メモが見つかりません。", 404);
     }
 
     const todoItems = await prisma.todoItem.findMany({
@@ -67,10 +55,7 @@ export async function GET(request: Request, { params }: MobileTodoItemsRouteCont
       orderBy: [{ position: "asc" }, { createdAt: "asc" }],
     });
 
-    return withMobileCors(
-      request,
-      NextResponse.json({ todos: todoItems.map(serializeTodoItem) }),
-    );
+    return mobileJson(request, { todos: todoItems.map(serializeTodoItem) });
   } catch (error) {
     logServerError(error, {
       action: "mobileListTodoItems",
@@ -78,13 +63,7 @@ export async function GET(request: Request, { params }: MobileTodoItemsRouteCont
       postId,
     });
 
-    return withMobileCors(
-      request,
-      NextResponse.json(
-        { error: "Todoの取得に失敗しました。" },
-        { status: 500 },
-      ),
-    );
+    return mobileError(request, "Todoの取得に失敗しました。", 500);
   }
 }
 
@@ -92,23 +71,14 @@ export async function POST(request: Request, { params }: MobileTodoItemsRouteCon
   const authUser = await getMobileAuthUser(request);
 
   if (!authUser) {
-    return withMobileCors(
-      request,
-      NextResponse.json({ error: "ログインが必要です。" }, { status: 401 }),
-    );
+    return mobileError(request, "ログインが必要です。", 401);
   }
 
   const { id } = await params;
   const validatedPostId = postIdValueSchema.safeParse(id);
 
   if (!validatedPostId.success) {
-    return withMobileCors(
-      request,
-      NextResponse.json(
-        { error: "メモIDの形式が正しくありません。" },
-        { status: 400 },
-      ),
-    );
+    return mobileError(request, "メモIDの形式が正しくありません。", 400);
   }
 
   let body: unknown;
@@ -116,25 +86,13 @@ export async function POST(request: Request, { params }: MobileTodoItemsRouteCon
   try {
     body = await request.json();
   } catch {
-    return withMobileCors(
-      request,
-      NextResponse.json(
-        { error: "リクエスト本文の形式が正しくありません。" },
-        { status: 400 },
-      ),
-    );
+    return mobileError(request, "リクエスト本文の形式が正しくありません。", 400);
   }
 
   const validatedFields = mobileCreateTodoItemSchema.safeParse(body);
 
   if (!validatedFields.success) {
-    return withMobileCors(
-      request,
-      NextResponse.json(
-        { error: getFirstZodErrorMessage(validatedFields.error) },
-        { status: 400 },
-      ),
-    );
+    return mobileError(request, getFirstZodErrorMessage(validatedFields.error), 400);
   }
 
   const postId = validatedPostId.data;
@@ -169,19 +127,10 @@ export async function POST(request: Request, { params }: MobileTodoItemsRouteCon
     });
 
     if (!todoItem) {
-      return withMobileCors(
-        request,
-        NextResponse.json(
-          { error: "このメモを編集する権限がありません。" },
-          { status: 403 },
-        ),
-      );
+      return mobileError(request, "このメモを編集する権限がありません。", 403);
     }
 
-    return withMobileCors(
-      request,
-      NextResponse.json({ todo: serializeTodoItem(todoItem) }),
-    );
+    return mobileJson(request, { todo: serializeTodoItem(todoItem) });
   } catch (error) {
     logServerError(error, {
       action: "mobileCreateTodoItem",
@@ -189,12 +138,6 @@ export async function POST(request: Request, { params }: MobileTodoItemsRouteCon
       postId,
     });
 
-    return withMobileCors(
-      request,
-      NextResponse.json(
-        { error: "Todoの追加に失敗しました。" },
-        { status: 500 },
-      ),
-    );
+    return mobileError(request, "Todoの追加に失敗しました。", 500);
   }
 }
