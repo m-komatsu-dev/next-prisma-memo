@@ -87,6 +87,8 @@ export async function POST(request: Request) {
     id: null,
     title: rawPayload.title,
     content: rawPayload.content,
+    kind: rawPayload.kind,
+    todoListDueAt: rawPayload.todoListDueAt,
     published: rawPayload.published,
     tags: rawPayload.tags ?? "",
   });
@@ -108,6 +110,8 @@ export async function POST(request: Request) {
       data: {
         title: payload.title.trim(),
         content: payload.content.trim(),
+        kind: payload.kind,
+        todoListDueAt: payload.kind === "dueTodo" ? payload.todoListDueAt : null,
         published: payload.published,
         authorId: authUser.id,
         tags: {

@@ -7,10 +7,12 @@ type SerializableMobilePost = {
   content: string;
   createdAt: Date;
   id: number;
+  kind: string;
   published: boolean;
   shares?: { role: PostShareRole }[];
   tags: { id: number; name: string }[];
   title: string;
+  todoListDueAt: Date | null;
   todoItems?: SerializableTodoItem[];
   updatedAt: Date;
 };
@@ -20,7 +22,9 @@ export function serializeMobilePost(post: SerializableMobilePost, userId: string
     accessRole: getPostAccessRole(post, userId),
     authorId: post.authorId,
     id: post.id,
+    kind: post.kind,
     title: post.title,
+    todoListDueAt: post.todoListDueAt?.toISOString() ?? null,
     content: post.content,
     todoItems: post.todoItems?.map(serializeTodoItem) ?? [],
     published: post.published,

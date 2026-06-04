@@ -228,11 +228,20 @@ export default async function PostsPage({ searchParams }: PostsPageProps) {
       title: post.title,
       content: post.content,
       published: post.published,
+      kind: post.kind,
+      todoListDueAt: post.todoListDueAt?.toISOString() ?? null,
       accessRole,
       authorId: post.authorId,
       createdAt: post.createdAt.toISOString(),
       updatedAt: post.updatedAt.toISOString(),
       tags: post.tags.map((tag) => ({ id: tag.id, name: tag.name })),
+      todoItems: post.todoItems.map((todoItem) => ({
+        completed: todoItem.completed,
+        dueAt: todoItem.dueAt?.toISOString() ?? null,
+        id: todoItem.id,
+        position: todoItem.position,
+        text: todoItem.text,
+      })),
     };
   });
 

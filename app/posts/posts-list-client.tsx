@@ -10,11 +10,20 @@ export type MemoCardPost = {
   id: number;
   title: string;
   content: string;
+  kind: string;
+  todoListDueAt: string | null;
   published: boolean;
   authorId: string;
   createdAt: string;
   updatedAt: string;
   tags: { id: number; name: string }[];
+  todoItems: {
+    completed: boolean;
+    dueAt: string | null;
+    id: number;
+    position: number;
+    text: string;
+  }[];
 };
 
 type ServerAction = (formData: FormData) => Promise<void>;
@@ -36,6 +45,16 @@ const dateFormatter = new Intl.DateTimeFormat("ja-JP", {
   year: "numeric",
   month: "short",
   day: "numeric",
+});
+const dateTimeFormatter = new Intl.DateTimeFormat("ja-JP", {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+const todoPreviewDateFormatter = new Intl.DateTimeFormat("ja-JP", {
+  month: "2-digit",
+  day: "2-digit",
+  hour: "numeric",
+  minute: "2-digit",
 });
 
 const PREVIEW_LINE_LIMIT = 14;
@@ -112,6 +131,64 @@ function MemoContentPreview({ content, query }: { content: string; query: string
   );
 }
 
+function TodoItemsPreview({
+  query,
+  todoItems,
+}: {
+  query: string;
+  todoItems: MemoCardPost["todoItems"];
+}) {
+  const visibleItems = todoItems
+    .slice()
+    .sort((a, b) => a.position - b.position || a.id - b.id)
+    .slice(0, 4);
+
+  if (visibleItems.length === 0) {
+    return <p className="memo-todo-preview__empty">Todo項目なし</p>;
+  }
+
+  return (
+    <ul className="memo-todo-preview" aria-label="Todo項目プレビュー">
+      {visibleItems.map((todoItem) => (
+        <li
+          className={[
+            "memo-todo-preview__item",
+            todoItem.completed ? "memo-todo-preview__item--completed" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          key={todoItem.id}
+        >
+          <span className="memo-todo-preview__check" aria-hidden="true">
+            {todoItem.completed ? "✓" : ""}
+          </span>
+          <span className="memo-todo-preview__text">
+            {highlightText(todoItem.text, query)}
+          </span>
+          {todoItem.dueAt && (
+            <span className="memo-todo-preview__due">
+              期限 {todoPreviewDateFormatter.format(new Date(todoItem.dueAt))}
+            </span>
+          )}
+        </li>
+      ))}
+      {todoItems.length > visibleItems.length && (
+        <li className="memo-todo-preview__more">
+          他 {todoItems.length - visibleItems.length} 件
+        </li>
+      )}
+    </ul>
+  );
+}
+
+function isTodoListPost(post: MemoCardPost) {
+  return (
+    post.kind === "dueTodo" ||
+    post.todoListDueAt !== null ||
+    post.content.trim() === "期限付きTodo"
+  );
+}
+
 export default function PostsListClient({
   posts,
   accessiblePostsCount,
@@ -143,6 +220,9 @@ export default function PostsListClient({
           normalizedQuery.length === 0 ||
           post.title.toLowerCase().includes(normalizedQuery) ||
           post.content.toLowerCase().includes(normalizedQuery) ||
+          post.todoItems.some((todoItem) =>
+            todoItem.text.toLowerCase().includes(normalizedQuery),
+          ) ||
           post.tags.some((tag) => tag.name.toLowerCase().includes(normalizedQuery));
 
         const matchesStatus =
@@ -298,7 +378,17 @@ export default function PostsListClient({
                         <Link href={`/posts/${post.id}`}>{highlightText(post.title, query)}</Link>
                       </h2>
 
-                      <MemoContentPreview content={post.content} query={query} />
+                      {isTodoListPost(post) ? (
+                        <TodoItemsPreview query={query} todoItems={post.todoItems} />
+                      ) : (
+                        <MemoContentPreview content={post.content} query={query} />
+                      )}
+
+                      {isTodoListPost(post) && post.todoListDueAt && (
+                        <p className="memo-card__due">
+                          リスト期限 {dateTimeFormatter.format(new Date(post.todoListDueAt))}
+                        </p>
+                      )}
 
                       {post.tags.length > 0 && (
                         <div className="memo-tags">

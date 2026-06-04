@@ -67,12 +67,14 @@ function toDateTimeLocalValue(value: string | null) {
 
 function TodoItemRow({
   canEdit,
+  forceDueTodo,
   nowTime,
   postId,
   onTodoChange,
   todoItem,
 }: {
   canEdit: boolean;
+  forceDueTodo: boolean;
   nowTime: number;
   onTodoChange: (todoItem: TodoItemView) => void;
   postId: number | null;
@@ -115,6 +117,11 @@ function TodoItemRow({
 
   const handleUpdate = () => {
     if (!postId) return;
+
+    if (forceDueTodo && !editDueAt) {
+      setUpdateState({ success: false, message: "期限付きTodoでは期限日時を入力してください。" });
+      return;
+    }
 
     const formData = buildTodoFormData({
       dueAt: editDueAt,
@@ -531,6 +538,7 @@ export default function TodoItemsPanel({
             <TodoItemRow
               key={todoItem.id}
               canEdit={canEdit}
+              forceDueTodo={forceDueTodo}
               nowTime={nowTime}
               onTodoChange={replaceTodoItem}
               postId={activePostId}

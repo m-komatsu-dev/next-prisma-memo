@@ -101,9 +101,11 @@ type CalendarQuickFilter = "today" | "tomorrow" | "week" | "overdue";
 const AUTO_SAVE_DEBOUNCE_MS = 1500;
 const DUE_TODO_MEMO_PAYLOAD: MobilePostPayload = {
   content: "期限付きTodo",
+  kind: "dueTodo",
   published: false,
   tags: "",
   title: "期限付きTodo",
+  todoListDueAt: null,
 };
 
 const aiTasks: { label: string; mode: MobileAiMode }[] = [
@@ -233,6 +235,18 @@ function parseTodoDateInput(value: string) {
     ? trimmed
     : trimmed.replace(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})$/, "$1T$2");
   const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function buildLocalDateTimeIso(dateKey: string, timeValue: string) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const [hours, minutes] = timeValue.split(":").map(Number);
+
+  if (!year || !month || !day || Number.isNaN(hours) || Number.isNaN(minutes)) {
+    return null;
+  }
+
+  const date = new Date(year, month - 1, day, hours, minutes, 0, 0);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
@@ -367,6 +381,13 @@ function formatLocalDateKey(dateKey: string) {
   return calendarDateFormatter.format(new Date(year, month - 1, day));
 }
 
+function getTimeValueFromIso(value: string | null) {
+  if (!value) return "09:00";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "09:00";
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 function getMonthStart(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
 }
@@ -403,9 +424,11 @@ function getTagsInput(post?: MobilePost | null) {
 function getPayloadSignature(payload: MobilePostPayload) {
   return JSON.stringify({
     content: payload.content,
+    kind: payload.kind ?? "text",
     published: payload.published,
     tags: payload.tags,
     title: payload.title,
+    todoListDueAt: payload.todoListDueAt ?? null,
   });
 }
 
@@ -565,6 +588,74 @@ function PostContentPreview({ content }: { content: string }) {
   );
 }
 
+function PostTodoItemsPreview({ todoItems }: { todoItems: MobileTodoItem[] }) {
+  const sortedTodoItems = useMemo(
+    () => [...todoItems].sort(compareTodos),
+    [todoItems],
+  );
+  const visibleItems = sortedTodoItems.slice(0, 4);
+
+  if (visibleItems.length === 0) {
+    return (
+      <Text style={styles.cardContent} numberOfLines={2}>
+        Todo項目なし
+      </Text>
+    );
+  }
+
+  return (
+    <View style={styles.cardContentPreview}>
+      {visibleItems.map((todo) => (
+        <View key={todo.id} style={styles.cardTodoPreviewLine}>
+          <View
+            style={[
+              styles.cardTodoCheckbox,
+              todo.completed ? styles.todoCheckboxChecked : undefined,
+            ]}
+          >
+            {todo.completed ? (
+              <Text style={styles.cardTodoCheckboxMark}>x</Text>
+            ) : null}
+          </View>
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.cardTodoPreviewText,
+              todo.completed ? styles.todoTextChecked : undefined,
+            ]}
+          >
+            {todo.text}
+          </Text>
+          {todo.dueAt ? (
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.cardTodoPreviewDue,
+                isTodoOverdue(todo) ? styles.modelTodoMetaOverdue : undefined,
+              ]}
+            >
+              期限 {formatTodoDateTime(todo.dueAt)}
+            </Text>
+          ) : null}
+        </View>
+      ))}
+      {sortedTodoItems.length > visibleItems.length ? (
+        <Text style={styles.cardTodoPreviewMore}>
+          他 {sortedTodoItems.length - visibleItems.length} 件
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function isTodoListPost(post: MobilePost) {
+  return (
+    post.kind === "dueTodo" ||
+    post.todoListDueAt !== null ||
+    post.content.trim() === "期限付きTodo"
+  );
+}
+
 function PostCard({
   onPress,
   post,
@@ -601,7 +692,17 @@ function PostCard({
             {post.title}
           </Text>
 
-          <PostContentPreview content={post.content} />
+          {isTodoListPost(post) ? (
+            <PostTodoItemsPreview todoItems={post.todoItems ?? []} />
+          ) : (
+            <PostContentPreview content={post.content} />
+          )}
+
+          {isTodoListPost(post) && post.todoListDueAt ? (
+            <Text style={styles.memoDueLabel}>
+              リスト期限 {formatUpdatedAt(post.todoListDueAt)}
+            </Text>
+          ) : null}
 
           <View style={styles.tagRow}>
             {post.tags.length > 0 ? (
@@ -943,6 +1044,7 @@ function TodoItemsPanel({
   canEdit,
   error,
   forceDueTodo,
+  hideCreateForm = false,
   onCreate,
   onDelete,
   onToggle,
@@ -953,6 +1055,7 @@ function TodoItemsPanel({
   canEdit: boolean;
   error: string;
   forceDueTodo?: boolean;
+  hideCreateForm?: boolean;
   onCreate: (payload: { dueAt: string | null; reminderAt?: string | null; text: string }) => void;
   onDelete: (todo: MobileTodoItem) => void;
   onToggle: (todo: MobileTodoItem) => void;
@@ -1025,6 +1128,10 @@ function TodoItemsPanel({
       }
 
       const dueAt = editDueAt.trim() ? parseTodoDateInput(editDueAt) : null;
+      if (forceDueTodo && !dueAt) {
+        setLocalError("期限付きTodoでは期限日時を選択してください。");
+        return;
+      }
       if (editDueAt.trim() && !dueAt) {
         setLocalError("期限日時を YYYY-MM-DD HH:mm 形式で入力してください。");
         return;
@@ -1042,7 +1149,7 @@ function TodoItemsPanel({
       onUpdate(todo, { dueAt, reminderAt, text });
       setEditingId(null);
     },
-    [editDueAt, editReminderAt, editText, onUpdate],
+    [editDueAt, editReminderAt, editText, forceDueTodo, onUpdate],
   );
 
   return (
@@ -1055,7 +1162,7 @@ function TodoItemsPanel({
         {!canEdit ? <Badge variant="shared">閲覧のみ</Badge> : null}
       </View>
 
-      {canEdit ? (
+      {canEdit && !hideCreateForm ? (
         <Card style={[styles.modelTodoForm, styles.flatSurface]}>
           {!forceDueTodo ? (
             <View style={styles.todoKindRow}>
@@ -1241,6 +1348,141 @@ function NewPostChoiceScreen({
   );
 }
 
+const pickerTimeOptions = Array.from({ length: 32 }, (_, index) => {
+  const totalMinutes = 8 * 60 + index * 30;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+});
+
+function DateTimePickerField({
+  label,
+  onChange,
+  value,
+}: {
+  label: string;
+  onChange: (nextValue: string) => void;
+  value: string | null;
+}) {
+  const [selectedDateKey, setSelectedDateKey] = useState(() =>
+    value ? getCalendarDateKey(value) : getLocalDateKey(new Date()),
+  );
+  const [selectedTime, setSelectedTime] = useState(() => getTimeValueFromIso(value));
+  const dateOptions = useMemo(
+    () =>
+      Array.from({ length: 21 }, (_, index) => {
+        const date = addLocalDays(new Date(), index);
+        return {
+          key: getLocalDateKey(date),
+          label:
+            index === 0
+              ? "今日"
+              : index === 1
+                ? "明日"
+                : formatLocalDateKey(getLocalDateKey(date)),
+        };
+      }),
+    [],
+  );
+
+  const commit = useCallback(
+    (dateKey: string, timeValue: string) => {
+      const nextIso = buildLocalDateTimeIso(dateKey, timeValue);
+      if (nextIso) {
+        onChange(nextIso);
+      }
+    },
+    [onChange],
+  );
+
+  const selectDate = useCallback(
+    (dateKey: string) => {
+      setSelectedDateKey(dateKey);
+      commit(dateKey, selectedTime);
+    },
+    [commit, selectedTime],
+  );
+
+  const selectTime = useCallback(
+    (timeValue: string) => {
+      setSelectedTime(timeValue);
+      commit(selectedDateKey, timeValue);
+    },
+    [commit, selectedDateKey],
+  );
+
+  return (
+    <View style={styles.dateTimePicker}>
+      <Text style={styles.dateTimePickerLabel}>{label}</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View style={styles.dateTimePickerRow}>
+          {dateOptions.map((option) => (
+            <Pressable
+              accessibilityRole="button"
+              key={option.key}
+              onPress={() => selectDate(option.key)}
+              style={[
+                styles.filterChip,
+                selectedDateKey === option.key ? styles.filterChipActive : undefined,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.filterChipText,
+                  selectedDateKey === option.key ? styles.filterChipTextActive : undefined,
+                ]}
+              >
+                {option.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </ScrollView>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View style={styles.dateTimePickerRow}>
+          {pickerTimeOptions.map((timeValue) => (
+            <Pressable
+              accessibilityRole="button"
+              key={timeValue}
+              onPress={() => selectTime(timeValue)}
+              style={[
+                styles.filterChip,
+                selectedTime === timeValue ? styles.filterChipActive : undefined,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.filterChipText,
+                  selectedTime === timeValue ? styles.filterChipTextActive : undefined,
+                ]}
+              >
+                {timeValue}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </ScrollView>
+      <Text style={styles.dateTimePickerValue}>
+        {value ? formatUpdatedAt(value) : "未選択"}
+      </Text>
+    </View>
+  );
+}
+
+type DueTodoDraftItem = {
+  dueAt: string | null;
+  id: string;
+  text: string;
+};
+
+function createDueTodoDraftItem(): DueTodoDraftItem {
+  return {
+    dueAt: null,
+    id: `${Date.now()}-${Math.random()}`,
+    text: "",
+  };
+}
+
 function DueTodoCreateScreen({
   error,
   onCancel,
@@ -1249,38 +1491,60 @@ function DueTodoCreateScreen({
 }: {
   error: string;
   onCancel: () => void;
-  onSubmit: (payload: { dueAt: string; reminderAt?: string | null; text: string }) => void;
+  onSubmit: (payload: {
+    items: { dueAt: string; text: string }[];
+    tags: string;
+    title: string;
+    todoListDueAt: string;
+  }) => void;
   saving: boolean;
 }) {
-  const [text, setText] = useState("");
-  const [dueAt, setDueAt] = useState("");
-  const [reminderAt, setReminderAt] = useState("");
+  const [title, setTitle] = useState("");
+  const [tags, setTags] = useState("");
+  const [todoListDueAt, setTodoListDueAt] = useState<string | null>(null);
+  const [items, setItems] = useState<DueTodoDraftItem[]>([createDueTodoDraftItem()]);
   const [localError, setLocalError] = useState("");
 
+  const updateItem = useCallback((id: string, patch: Partial<DueTodoDraftItem>) => {
+    setItems((currentItems) =>
+      currentItems.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    );
+  }, []);
+
   const submit = useCallback(() => {
-    const nextText = text.trim();
-    if (!nextText) {
-      setLocalError("Todo本文を入力してください。");
+    const nextTitle = title.trim();
+    const normalizedItems = items
+      .map((item) => ({ dueAt: item.dueAt, text: item.text.trim() }))
+      .filter((item) => item.text.length > 0);
+
+    if (!nextTitle) {
+      setLocalError("Todoリストのタイトルを入力してください。");
       return;
     }
 
-    const parsedDueAt = parseTodoDateInput(dueAt);
-    if (!parsedDueAt) {
-      setLocalError("期限日時を YYYY-MM-DD HH:mm 形式で入力してください。");
+    if (!todoListDueAt) {
+      setLocalError("Todoリスト全体の期限を選択してください。");
       return;
     }
 
-    const parsedReminderAt = reminderAt.trim()
-      ? parseTodoDateInput(reminderAt)
-      : null;
-    if (reminderAt.trim() && !parsedReminderAt) {
-      setLocalError("リマインダー日時を YYYY-MM-DD HH:mm 形式で入力してください。");
+    if (normalizedItems.length === 0) {
+      setLocalError("Todo項目を1件以上入力してください。");
+      return;
+    }
+
+    if (normalizedItems.some((item) => !item.dueAt)) {
+      setLocalError("各Todo項目の期限を選択してください。");
       return;
     }
 
     setLocalError("");
-    onSubmit({ dueAt: parsedDueAt, reminderAt: parsedReminderAt, text: nextText });
-  }, [dueAt, onSubmit, reminderAt, text]);
+    onSubmit({
+      title: nextTitle,
+      tags,
+      todoListDueAt,
+      items: normalizedItems as { dueAt: string; text: string }[],
+    });
+  }, [items, onSubmit, tags, title, todoListDueAt]);
 
   return (
     <KeyboardAvoidingView
@@ -1299,25 +1563,65 @@ function DueTodoCreateScreen({
         <Card style={[styles.modelTodoForm, styles.flatSurface]}>
           <TextField
             editable={!saving}
-            label="Todo本文"
-            onChangeText={setText}
-            placeholder="やること"
-            value={text}
+            label="Todoリストのタイトル"
+            onChangeText={setTitle}
+            placeholder="Todoリストのタイトル"
+            value={title}
+          />
+          <DateTimePickerField
+            label="Todoリスト全体の期限"
+            onChange={setTodoListDueAt}
+            value={todoListDueAt}
           />
           <TextField
             editable={!saving}
-            label="期限日時"
-            onChangeText={setDueAt}
-            placeholder="2026-05-29 18:30"
-            value={dueAt}
+            label="タグ"
+            onChangeText={setTags}
+            placeholder="タグ: 仕事, 買い物, 期限"
+            value={tags}
           />
-          <TextField
-            editable={!saving}
-            label="リマインダー"
-            onChangeText={setReminderAt}
-            placeholder="任意: 2026-05-29 09:00"
-            value={reminderAt}
-          />
+        </Card>
+
+        <Card style={[styles.modelTodoForm, styles.flatSurface]}>
+          <View style={styles.modelTodoHeader}>
+            <Text style={styles.modelTodoTitle}>Todo項目</Text>
+            <Button
+              disabled={saving}
+              onPress={() => setItems((currentItems) => [...currentItems, createDueTodoDraftItem()])}
+              variant="secondary"
+            >
+              追加
+            </Button>
+          </View>
+          {items.map((item, index) => (
+            <View key={item.id} style={styles.dueTodoDraftItem}>
+              <TextField
+                editable={!saving}
+                label={`Todo項目 ${index + 1}`}
+                onChangeText={(nextText) => updateItem(item.id, { text: nextText })}
+                placeholder="やること"
+                value={item.text}
+              />
+              <DateTimePickerField
+                label="項目の期限"
+                onChange={(nextDueAt) => updateItem(item.id, { dueAt: nextDueAt })}
+                value={item.dueAt}
+              />
+              <Button
+                disabled={saving}
+                onPress={() =>
+                  setItems((currentItems) =>
+                    currentItems.length === 1
+                      ? [createDueTodoDraftItem()]
+                      : currentItems.filter((currentItem) => currentItem.id !== item.id),
+                  )
+                }
+                variant="danger"
+              >
+                削除
+              </Button>
+            </View>
+          ))}
         </Card>
 
         {localError || error ? (
@@ -1760,6 +2064,10 @@ function MemoForm({
   const [content, setContent] = useState(initialPost?.content ?? "");
   const [tags, setTags] = useState(getTagsInput(initialPost));
   const [published, setPublished] = useState(initialPost?.published ?? false);
+  const [todoListDueAt, setTodoListDueAt] = useState<string | null>(
+    initialPost?.todoListDueAt ?? null,
+  );
+  const isDueTodoPost = initialPost?.kind === "dueTodo";
   const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>(
     initialPost ? "saved" : "unsaved",
   );
@@ -1779,12 +2087,14 @@ function MemoForm({
   const tagsRef = useRef(tags);
   const lastSavedSignatureRef = useRef(
     initialPost
-      ? getPayloadSignature({
-          content: normalizeChecklistContentForSave(initialPost.content),
-          published: initialPost.published,
-          tags: getTagsInput(initialPost),
-          title: initialPost.title,
-        })
+        ? getPayloadSignature({
+            content: normalizeChecklistContentForSave(initialPost.content),
+            kind: initialPost.kind,
+            published: initialPost.published,
+            tags: getTagsInput(initialPost),
+            title: initialPost.title,
+            todoListDueAt: initialPost.todoListDueAt,
+          })
       : "",
   );
 
@@ -1792,11 +2102,13 @@ function MemoForm({
     () =>
       getNormalizedPayload({
         content,
+        kind: initialPost?.kind ?? "text",
         published,
         tags,
         title,
+        todoListDueAt: isDueTodoPost ? todoListDueAt : null,
       }),
-    [content, published, tags, title],
+    [content, initialPost?.kind, isDueTodoPost, published, tags, title, todoListDueAt],
   );
 
   useEffect(() => {
@@ -1999,77 +2311,91 @@ function MemoForm({
           </Text>
         </View>
 
-        <Card style={[styles.aiPanel, styles.flatSurface]}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setAiOpen((current) => !current)}
-            style={({ pressed }) => [
-              styles.aiPanelHeader,
-              pressed ? styles.buttonPressed : undefined,
-            ]}
-          >
-            <View style={styles.editorHeading}>
-              <Text style={styles.aiPanelKicker}>AI Assistant</Text>
-              <Text style={styles.aiPanelLead}>
-                {aiOpen
-                  ? "タイトル・タグ・要約・リライトを生成できます。"
-                  : "タップしてAI機能を開く"}
-              </Text>
-            </View>
-            <View style={styles.aiHeaderRight}>
-              {aiMode ? (
-                <ActivityIndicator color={colors.primaryStrong} />
-              ) : (
-                <Text style={styles.aiToggleText}>{aiOpen ? "閉じる" : "開く"}</Text>
-              )}
-            </View>
-          </Pressable>
-
-          {aiOpen ? (
-            <>
-              <View style={styles.aiButtonRow}>
-                {aiTasks.map((task) => (
-                  <Button
-                    disabled={Boolean(aiMode)}
-                    key={task.mode}
-                    onPress={() => {
-                      void handleAiGenerate(task.mode);
-                    }}
-                    style={styles.aiTaskButton}
-                    variant="soft"
-                  >
-                    {aiMode === task.mode ? "生成中..." : task.label}
-                  </Button>
-                ))}
+        {!isDueTodoPost ? (
+          <Card style={[styles.aiPanel, styles.flatSurface]}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setAiOpen((current) => !current)}
+              style={({ pressed }) => [
+                styles.aiPanelHeader,
+                pressed ? styles.buttonPressed : undefined,
+              ]}
+            >
+              <View style={styles.editorHeading}>
+                <Text style={styles.aiPanelKicker}>AI Assistant</Text>
+                <Text style={styles.aiPanelLead}>
+                  {aiOpen
+                    ? "タイトル・タグ・要約・リライトを生成できます。"
+                    : "タップしてAI機能を開く"}
+                </Text>
               </View>
+              <View style={styles.aiHeaderRight}>
+                {aiMode ? (
+                  <ActivityIndicator color={colors.primaryStrong} />
+                ) : (
+                  <Text style={styles.aiToggleText}>{aiOpen ? "閉じる" : "開く"}</Text>
+                )}
+              </View>
+            </Pressable>
 
-              {aiStatusMessage ? (
-                <Text style={styles.aiSuccessText}>{aiStatusMessage}</Text>
-              ) : null}
-              {aiError ? <Text style={styles.aiErrorText}>{aiError}</Text> : null}
-            </>
-          ) : null}
-        </Card>
+            {aiOpen ? (
+              <>
+                <View style={styles.aiButtonRow}>
+                  {aiTasks.map((task) => (
+                    <Button
+                      disabled={Boolean(aiMode)}
+                      key={task.mode}
+                      onPress={() => {
+                        void handleAiGenerate(task.mode);
+                      }}
+                      style={styles.aiTaskButton}
+                      variant="soft"
+                    >
+                      {aiMode === task.mode ? "生成中..." : task.label}
+                    </Button>
+                  ))}
+                </View>
+
+                {aiStatusMessage ? (
+                  <Text style={styles.aiSuccessText}>{aiStatusMessage}</Text>
+                ) : null}
+                {aiError ? <Text style={styles.aiErrorText}>{aiError}</Text> : null}
+              </>
+            ) : null}
+          </Card>
+        ) : null}
 
         <Card style={styles.editorSheet}>
           <TextInput
             editable={!saving}
             onChangeText={setTitle}
-            placeholder="タイトル"
+            placeholder={isDueTodoPost ? "Todoリストのタイトル" : "タイトル"}
             placeholderTextColor="#a0a8b5"
             style={styles.editorTitleInput}
             value={title}
           />
 
-          <View style={styles.editorToolbar}>
-            <Text style={styles.editorToolbarText}>本文</Text>
-          </View>
+          {isDueTodoPost ? (
+            <View style={styles.memoTodoSummary}>
+              <DateTimePickerField
+                label="Todoリスト全体の期限"
+                onChange={setTodoListDueAt}
+                value={todoListDueAt}
+              />
+            </View>
+          ) : (
+            <>
+              <View style={styles.editorToolbar}>
+                <Text style={styles.editorToolbarText}>本文</Text>
+              </View>
 
-          <TodoListEditor
-            editable={!saving}
-            onChange={setContent}
-            value={content}
-          />
+              <TodoListEditor
+                editable={!saving}
+                onChange={setContent}
+                value={content}
+              />
+            </>
+          )}
 
           {mode === "edit" && initialPost?.todoItems ? (
             <MemoTodoSummary todoItems={initialPost.todoItems} />
@@ -2079,7 +2405,11 @@ function MemoForm({
             autoCapitalize="none"
             editable={!saving}
             onChangeText={setTags}
-            placeholder="タグ: React, 勉強, アイデア"
+            placeholder={
+              isDueTodoPost
+                ? "タグ: 仕事, 買い物, 期限"
+                : "タグ: React, 勉強, アイデア"
+            }
             placeholderTextColor="#a0a8b5"
             style={styles.editorTagsInput}
             value={tags}
@@ -3150,6 +3480,10 @@ export default function App() {
       return "本文を入力してください。";
     }
 
+    if (payload.kind === "dueTodo" && !payload.todoListDueAt) {
+      return "Todoリスト全体の期限を選択してください。";
+    }
+
     return "";
   }, []);
 
@@ -3391,7 +3725,12 @@ export default function App() {
   );
 
   const handleSaveDueTodoCreate = useCallback(
-    async (payload: { dueAt: string; reminderAt?: string | null; text: string }) => {
+    async (payload: {
+      items: { dueAt: string; text: string }[];
+      tags: string;
+      title: string;
+      todoListDueAt: string;
+    }) => {
       if (!accessToken) {
         setLoginError("ログインが必要です。");
         return;
@@ -3402,19 +3741,31 @@ export default function App() {
 
       try {
         const savedPost = await withAuthRetry((token) =>
-          createMobilePost(token, DUE_TODO_MEMO_PAYLOAD),
+          createMobilePost(token, {
+            ...DUE_TODO_MEMO_PAYLOAD,
+            tags: payload.tags,
+            title: payload.title,
+            todoListDueAt: payload.todoListDueAt,
+          }),
         );
-        const todoItem = await withAuthRetry((token) =>
-          createMobileTodoItem(token, savedPost.id, payload),
+        const todoItems = await Promise.all(
+          payload.items.map((item) =>
+            withAuthRetry((token) =>
+              createMobileTodoItem(token, savedPost.id, {
+                dueAt: item.dueAt,
+                text: item.text,
+              }),
+            ),
+          ),
         );
         const postWithTodo: MobilePost = {
           ...savedPost,
-          todoItems: [...(savedPost.todoItems ?? []), todoItem],
+          todoItems: [...(savedPost.todoItems ?? []), ...todoItems],
         };
 
         setPosts((currentPosts) => [postWithTodo, ...currentPosts]);
         setSelectedPost(postWithTodo);
-        syncCrossMemoTodo(todoItem, postWithTodo, true);
+        todoItems.forEach((todoItem) => syncCrossMemoTodo(todoItem, postWithTodo, true));
         setViewMode("detail");
       } catch (caughtError) {
         if (await handleAuthError(caughtError)) {
@@ -3729,6 +4080,9 @@ export default function App() {
           normalizedQuery.length === 0 ||
           post.title.toLowerCase().includes(normalizedQuery) ||
           post.content.toLowerCase().includes(normalizedQuery) ||
+          (post.todoItems ?? []).some((todoItem) =>
+            todoItem.text.toLowerCase().includes(normalizedQuery),
+          ) ||
           post.tags.some((tag) =>
             tag.name.toLowerCase().includes(normalizedQuery),
           );
@@ -4479,6 +4833,14 @@ export default function App() {
                         : "未分類"}
                     </Text>
                   </View>
+                  {isTodoListPost(selectedPost) && selectedPost.todoListDueAt ? (
+                    <View style={styles.postMetaItem}>
+                      <Text style={styles.postMetaLabel}>リスト期限</Text>
+                      <Text style={styles.postMetaValue}>
+                        {formatUpdatedAt(selectedPost.todoListDueAt)}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
               </View>
 
@@ -4493,22 +4855,30 @@ export default function App() {
                 <Text style={styles.copyFeedback}>コピーしました</Text>
               ) : null}
 
-              <TodoContentDisplay content={selectedPost.content} />
+              {isTodoListPost(selectedPost) ? (
+                <PostTodoItemsPreview todoItems={selectedPost.todoItems ?? []} />
+              ) : (
+                <TodoContentDisplay content={selectedPost.content} />
+              )}
 
-              <TodoItemsPanel
-                canEdit={selectedPostCanEdit}
-                error={todoError}
-                onCreate={(payload) => {
-                  void handleCreateTodoItem(payload);
-                }}
-                onDelete={confirmDeleteTodoItem}
-                onToggle={handleToggleTodoItem}
-                onUpdate={(todo, payload) => {
-                  void handleUpdateTodoItem(todo, payload);
-                }}
-                savingId={todoSavingId}
-                todoItems={selectedPost.todoItems ?? []}
-              />
+              {(selectedPost.todoItems ?? []).length > 0 ? (
+                <TodoItemsPanel
+                  canEdit={selectedPostCanEdit}
+                  error={todoError}
+                  forceDueTodo={isTodoListPost(selectedPost)}
+                  hideCreateForm
+                  onCreate={(payload) => {
+                    void handleCreateTodoItem(payload);
+                  }}
+                  onDelete={confirmDeleteTodoItem}
+                  onToggle={handleToggleTodoItem}
+                  onUpdate={(todo, payload) => {
+                    void handleUpdateTodoItem(todo, payload);
+                  }}
+                  savingId={todoSavingId}
+                  todoItems={selectedPost.todoItems ?? []}
+                />
+              ) : null}
 
               <View style={[styles.tagRow, styles.detailTagRow]}>
                 {selectedPost.tags.length > 0 ? (
@@ -5524,6 +5894,20 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
   },
+  cardTodoPreviewDue: {
+    color: colors.textSoft,
+    flexShrink: 0,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 20,
+    maxWidth: 132,
+  },
+  cardTodoPreviewMore: {
+    color: colors.textSoft,
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 20,
+  },
   tagRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -5534,6 +5918,17 @@ const styles = StyleSheet.create({
     color: colors.textSoft,
     fontSize: 13,
     fontWeight: "700",
+  },
+  memoDueLabel: {
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(14, 165, 233, 0.1)",
+    borderRadius: radius.pill,
+    color: colors.primaryStrong,
+    fontSize: 12,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   memoDates: {
     borderTopColor: colors.border,
@@ -5846,6 +6241,30 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     lineHeight: 22,
+  },
+  dateTimePicker: {
+    gap: 8,
+  },
+  dateTimePickerLabel: {
+    color: colors.textSoft,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  dateTimePickerRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingVertical: 2,
+  },
+  dateTimePickerValue: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  dueTodoDraftItem: {
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    gap: 12,
+    paddingTop: 12,
   },
   memoTodoSummary: {
     backgroundColor: "rgba(248, 250, 252, 0.82)",
