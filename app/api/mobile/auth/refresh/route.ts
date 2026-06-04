@@ -14,7 +14,7 @@ import { mobileRefreshTokenRequestSchema } from "@/lib/zod";
 import { NextResponse } from "next/server";
 
 const invalidRefreshTokenResponse = {
-  error: "refreshTokenが無効、または期限切れです。",
+  error: "ログイン情報を更新できません。再ログインしてください。",
 };
 
 export async function POST(request: Request) {

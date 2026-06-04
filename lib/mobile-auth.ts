@@ -10,6 +10,27 @@ export type MobileAuthUser = {
   id: string;
 };
 
+type RefreshTokenParts = {
+  refreshToken: string;
+  refreshTokenId: string;
+};
+
+type RefreshApiSession = {
+  expiresAt: Date;
+  id: string;
+  previousRefreshTokenHash: string | null;
+  refreshTokenHash: string;
+  refreshTokenId: string | null;
+  revokedAt: Date | null;
+  tokenFamilyId: string;
+  userId: string;
+};
+
+type RefreshApiSessionMatch = {
+  apiSession: RefreshApiSession;
+  matchedRotatedToken: boolean;
+};
+
 function getMobileAuthSecret() {
   const secret = process.env.MOBILE_AUTH_SECRET ?? process.env.AUTH_SECRET;
 
@@ -36,6 +57,10 @@ function getBearerToken(request: Request) {
   return token;
 }
 
+function createTokenId() {
+  return randomBytes(16).toString("base64url");
+}
+
 async function createMobileSessionAccessToken(
   userId: string,
   apiSessionId: string,
@@ -49,12 +74,35 @@ async function createMobileSessionAccessToken(
     .sign(getMobileAuthSecret());
 }
 
-function createRefreshToken() {
-  return randomBytes(32).toString("base64url");
+function createRefreshToken(refreshTokenId = createTokenId()): RefreshTokenParts {
+  const refreshTokenSecret = randomBytes(32).toString("base64url");
+
+  return {
+    refreshToken: `${refreshTokenId}.${refreshTokenSecret}`,
+    refreshTokenId,
+  };
+}
+
+function parseRefreshToken(refreshToken: string) {
+  const [refreshTokenId, refreshTokenSecret, ...rest] = refreshToken.split(".");
+
+  if (
+    rest.length === 0 &&
+    /^[A-Za-z0-9_-]{16,128}$/.test(refreshTokenId ?? "") &&
+    /^[A-Za-z0-9_-]{32,256}$/.test(refreshTokenSecret ?? "")
+  ) {
+    return { refreshTokenId };
+  }
+
+  return { refreshTokenId: null };
 }
 
 export function hashMobileRefreshToken(refreshToken: string) {
   return createHash("sha256").update(refreshToken).digest("hex");
+}
+
+function createAuditFingerprint(value: string) {
+  return createHash("sha256").update(value).digest("hex").slice(0, 16);
 }
 
 function getRefreshTokenExpiresAt(now = new Date()) {
@@ -67,11 +115,13 @@ export async function createMobileApiSession(
   userId: string,
   userAgent?: string | null,
 ) {
-  const refreshToken = createRefreshToken();
+  const { refreshToken, refreshTokenId } = createRefreshToken();
   const apiSession = await prisma.apiSession.create({
     data: {
       expiresAt: getRefreshTokenExpiresAt(),
+      refreshTokenId,
       refreshTokenHash: hashMobileRefreshToken(refreshToken),
+      tokenFamilyId: refreshTokenId,
       userAgent: userAgent?.slice(0, 512) ?? null,
       userId,
     },
@@ -82,43 +132,142 @@ export async function createMobileApiSession(
   return { accessToken, refreshToken };
 }
 
-export async function refreshMobileApiSession(refreshToken: string) {
-  const now = new Date();
-  const refreshTokenHash = hashMobileRefreshToken(refreshToken);
-  const apiSession = await prisma.apiSession.findUnique({
-    where: { refreshTokenHash },
-    select: {
-      expiresAt: true,
-      id: true,
-      revokedAt: true,
-      userId: true,
-    },
-  });
-
-  if (
-    !apiSession ||
-    apiSession.revokedAt ||
-    apiSession.expiresAt.getTime() <= now.getTime()
-  ) {
-    return null;
-  }
-
-  const nextRefreshToken = createRefreshToken();
-
+async function revokeTokenFamilyForReuse(
+  apiSession: RefreshApiSession,
+  now: Date,
+  reason: string,
+) {
   const result = await prisma.apiSession.updateMany({
     data: {
       lastUsedAt: now,
-      refreshTokenHash: hashMobileRefreshToken(nextRefreshToken),
+      revokedAt: now,
     },
     where: {
-      expiresAt: { gt: now },
-      id: apiSession.id,
-      refreshTokenHash,
-      revokedAt: null,
+      tokenFamilyId: apiSession.tokenFamilyId,
     },
   });
 
+  console.warn(
+    JSON.stringify({
+      level: "warn",
+      timestamp: now.toISOString(),
+      event: "mobile_refresh_token_reuse_detected",
+      context: {
+        action: "mobileRefreshTokenReuse",
+        apiSessionId: apiSession.id,
+        familyFingerprint: createAuditFingerprint(apiSession.tokenFamilyId),
+        reason,
+        revokedSessions: result.count,
+        userId: apiSession.userId,
+      },
+    }),
+  );
+}
+
+async function findRefreshApiSession(
+  refreshTokenHash: string,
+  refreshTokenId: string | null,
+): Promise<RefreshApiSessionMatch | null> {
+  const select = {
+    expiresAt: true,
+    id: true,
+    previousRefreshTokenHash: true,
+    refreshTokenHash: true,
+    refreshTokenId: true,
+    revokedAt: true,
+    tokenFamilyId: true,
+    userId: true,
+  } as const;
+
+  if (refreshTokenId) {
+    const apiSession = await prisma.apiSession.findUnique({
+      where: { refreshTokenId },
+      select,
+    });
+
+    return apiSession ? { apiSession, matchedRotatedToken: false } : null;
+  }
+
+  const currentApiSession = await prisma.apiSession.findUnique({
+    where: { refreshTokenHash },
+    select,
+  });
+
+  if (currentApiSession) {
+    return { apiSession: currentApiSession, matchedRotatedToken: false };
+  }
+
+  const rotatedApiSession = await prisma.apiSession.findUnique({
+    where: { previousRefreshTokenHash: refreshTokenHash },
+    select,
+  });
+
+  return rotatedApiSession
+    ? { apiSession: rotatedApiSession, matchedRotatedToken: true }
+    : null;
+}
+
+export async function refreshMobileApiSession(refreshToken: string) {
+  const now = new Date();
+  const parsedRefreshToken = parseRefreshToken(refreshToken);
+  const refreshTokenHash = hashMobileRefreshToken(refreshToken);
+  const matchedApiSession = await findRefreshApiSession(
+    refreshTokenHash,
+    parsedRefreshToken.refreshTokenId,
+  );
+
+  if (!matchedApiSession) {
+    return null;
+  }
+
+  const { apiSession } = matchedApiSession;
+
+  if (apiSession.revokedAt) {
+    await revokeTokenFamilyForReuse(apiSession, now, "revoked_session");
+    return null;
+  }
+
+  if (apiSession.expiresAt.getTime() <= now.getTime()) {
+    await revokeTokenFamilyForReuse(apiSession, now, "expired_session");
+    return null;
+  }
+
+  if (matchedApiSession.matchedRotatedToken) {
+    await revokeTokenFamilyForReuse(apiSession, now, "refresh_token_reuse");
+    return null;
+  }
+
+  if (
+    parsedRefreshToken.refreshTokenId &&
+    apiSession.refreshTokenHash !== refreshTokenHash
+  ) {
+    await revokeTokenFamilyForReuse(apiSession, now, "refresh_token_reuse");
+    return null;
+  }
+
+  const nextRefreshToken = createRefreshToken(
+    apiSession.refreshTokenId ?? undefined,
+  );
+
+  const result = await prisma.$transaction(async (tx) =>
+    tx.apiSession.updateMany({
+      data: {
+        lastUsedAt: now,
+        previousRefreshTokenHash: refreshTokenHash,
+        refreshTokenHash: hashMobileRefreshToken(nextRefreshToken.refreshToken),
+        refreshTokenId: nextRefreshToken.refreshTokenId,
+      },
+      where: {
+        expiresAt: { gt: now },
+        id: apiSession.id,
+        refreshTokenHash,
+        revokedAt: null,
+      },
+    }),
+  );
+
   if (result.count === 0) {
+    await revokeTokenFamilyForReuse(apiSession, now, "rotation_conflict");
     return null;
   }
 
@@ -127,7 +276,7 @@ export async function refreshMobileApiSession(refreshToken: string) {
     apiSession.id,
   );
 
-  return { accessToken, refreshToken: nextRefreshToken };
+  return { accessToken, refreshToken: nextRefreshToken.refreshToken };
 }
 
 export async function revokeMobileApiSession(refreshToken: string) {

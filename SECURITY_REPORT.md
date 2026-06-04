@@ -5,6 +5,7 @@
 ## 見つけた問題
 
 - モバイル refresh token のローテーションが、読み取り後に `ApiSession.id` だけで更新されており、同時実行時に古い refresh token の再利用を検出しにくい状態でした。
+- モバイル refresh token が盗まれた場合に、ローテーション済み token の再利用を token family 単位で全失効する仕組みがありませんでした。
 - `logServerError` が Error message / stack / Prisma meta をそのまま記録しており、例外内容によっては Bearer token、DB URL、API key などがログに混ざる余地がありました。
 - Auth のランタイム設定ログが本番環境で自動出力され、秘密値は出ていないものの、DB ホストなどの環境情報が不要に出力される状態でした。
 - `/api/mobile/*` の CORS で `Access-Control-Allow-Credentials: true` を返していました。許可 origin は限定されていましたが、Bearer token API には不要な設定でした。
@@ -17,8 +18,19 @@
 ## 修正した問題
 
 - `lib/mobile-auth.ts`
+  - refresh token を `refreshTokenId.secret` 形式へ変更し、`refreshTokenId` で `ApiSession` を引いて現在の `refreshTokenHash` と照合するようにしました。
+  - `tokenFamilyId` を追加し、reuse、失効済み session、期限切れ session、rotation 競合を検知した場合は同じ `tokenFamilyId` の `ApiSession` をすべて `revokedAt` 付きで失効します。
+  - 直前の旧形式 refresh token hash を `previousRefreshTokenHash` として保持し、移行直後に旧形式 token が再利用された場合も family 失効できるようにしました。
   - refresh token 更新を `updateMany` に変更し、`id`、現在の `refreshTokenHash`、未失効、未期限切れを同時に満たす場合だけローテーションするようにしました。
-  - 古い refresh token の replay や競合で更新できなかった場合は `null` を返し、API 側で 401 になります。
+  - reuse detection 時は `mobile_refresh_token_reuse_detected` の監査ログを出します。ログには token、secret、Authorization header、DB URL を出さず、family は SHA-256 の短い fingerprint のみを記録します。
+  - 古い refresh token の replay や競合で更新できなかった場合は `null` を返し、API 側で詳細理由を伏せた 401 になります。
+
+- `prisma/schema.prisma` / migrations
+  - `ApiSession` に `tokenFamilyId`、`refreshTokenId`、`previousRefreshTokenHash` を追加しました。
+  - `tokenFamilyId` と `revokedAt` に index を追加し、family 単位の全失効と active 判定を効率化しました。
+
+- `app/api/mobile/auth/refresh/route.ts`
+  - refresh 失敗時の 401 レスポンスを「再ログインしてください」という固定文言にし、reuse / 期限切れ / 失効済みの詳細を返さないようにしました。
 
 - `lib/server-errors.ts`
   - Authorization header、token、secret、password、API key、DB URL などをサーバーログから redaction する処理を追加しました。
@@ -55,7 +67,12 @@
   - 無効な Bearer token が `/api/mobile/posts` で 401 になることを追加確認しました。
   - 期限切れ Bearer token が 401 になり、DB セッション検索まで進まないことを追加確認しました。
   - 有効な Bearer token でも active な `ApiSession` が必要なことを追加確認しました。
-  - refresh token replay 時に 401 になることを追加確認しました。
+  - 正常な refresh で新しい access token / refresh token が返ることを確認しました。
+  - refresh token replay 時に 401 になり、同じ token family の `ApiSession` が全失効することを追加確認しました。
+  - family 全失効後は同じ family の refresh token が使えないことを確認しました。
+  - family 全失効後は該当 access token でも mobile API にアクセスできないことを確認しました。
+  - logout 済み session と期限切れ refresh token では refresh できないことを確認しました。
+  - reuse detection のログ・レスポンスに token / secret が出ないことを確認しました。
   - モバイル用の post readable 条件が owner / shared のみに絞られていることを追加確認しました。
   - サーバーログから token / DB URL が redaction されることを追加確認しました。
   - Cron が正しい `Authorization` header と `x-cron-secret` header でのみ成功し、secret なし、誤った secret、query secret のみ、`CRON_SECRET` 未設定時は 401 になることを確認しました。
@@ -74,9 +91,6 @@
 
 - Rate limit / brute force 対策
   - Credentials login、mobile login、AI API、refresh API に IP・ユーザー単位の rate limit を追加するとより安全です。
-
-- refresh token 侵害検知
-  - 今回は replay を 401 にしますが、token family 失効や reuse detection の監査ログまでは実装していません。
 
 - CSRF の追加防御
   - Server Actions と Auth.js の基本防御に依存しています。高リスク操作には intent token や再認証を追加するとさらに堅くできます。
@@ -105,7 +119,7 @@
   - 実 env は ignore、example は追跡可能であることを確認しました。
 
 - `npm run test`
-  - 14 files / 87 tests passed.
+  - 14 files / 92 tests passed.
 
 - `npm run lint`
   - passed.
@@ -115,6 +129,7 @@
 
 - `npm run test:e2e`
   - 5 tests passed.
+  - sandbox 内では WebServer の `0.0.0.0:3000` listen が `EPERM` で失敗したため、承認後に再実行して成功しました。
 
 - `npm audit --audit-level=high`
   - 初回はネットワーク制限で失敗。ネットワーク許可後に再実行し、`found 0 vulnerabilities`。
@@ -129,7 +144,7 @@
 ## 次にやるべき改善案
 
 1. mobile login / credentials login / AI API に rate limit を追加する。
-2. refresh token reuse detection と token family 全失効を追加する。
+2. refresh token reuse detection の監査ログを本番のログ基盤でアラート化する。
 3. タグをユーザー所有モデルにするか、タグ API を追加する場合は必ず `userId` スコープにする。
 4. 本番ドメイン確定後、CSP を report-only から段階導入する。
 5. 重要操作に再認証または確認用 nonce を追加する。

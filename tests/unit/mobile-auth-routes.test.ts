@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SignJWT } from "jose";
+import { createHash } from "node:crypto";
 import {
   AI_USER_RATE_LIMIT,
   CREDENTIALS_LOGIN_EMAIL_IP_RATE_LIMIT,
@@ -11,6 +12,13 @@ const authMock = vi.hoisted(() => vi.fn());
 const bcryptCompareMock = vi.hoisted(() => vi.fn());
 const generateAiResultMock = vi.hoisted(() => vi.fn());
 const prismaMock = vi.hoisted(() => ({
+  $transaction: vi.fn(async (callbackOrQueries: unknown) => {
+    if (typeof callbackOrQueries === "function") {
+      return (callbackOrQueries as (tx: unknown) => unknown)(prismaMock);
+    }
+
+    return Promise.all(callbackOrQueries as Promise<unknown>[]);
+  }),
   apiSession: {
     create: vi.fn(),
     findUnique: vi.fn(),
@@ -56,6 +64,10 @@ function createJsonRequest(path: string, body: unknown) {
   });
 }
 
+function hashRefreshToken(refreshToken: string) {
+  return createHash("sha256").update(refreshToken).digest("hex");
+}
+
 describe("mobile auth API", () => {
   beforeEach(() => {
     process.env.AUTH_SECRET = "test-secret-for-mobile-auth-route-tests";
@@ -93,6 +105,8 @@ describe("mobile auth API", () => {
     expect(data.accessToken).toEqual(expect.any(String));
     expect(data.refreshToken).toEqual(expect.any(String));
     expect(createCall.data.userId).toBe("user-1");
+    expect(createCall.data.refreshTokenId).toEqual(expect.any(String));
+    expect(createCall.data.tokenFamilyId).toBe(createCall.data.refreshTokenId);
     expect(createCall.data.refreshTokenHash).toEqual(expect.any(String));
     expect(createCall.data.refreshTokenHash).not.toBe(data.refreshToken);
     expect(createCall.data.userAgent).toBe("Vitest Mobile");
@@ -162,7 +176,10 @@ describe("mobile auth API", () => {
     prismaMock.apiSession.findUnique.mockResolvedValue({
       expiresAt: new Date(Date.now() + 60_000),
       id: "api-session-1",
+      refreshTokenHash: hashRefreshToken(oldRefreshToken),
+      refreshTokenId: null,
       revokedAt: null,
+      tokenFamilyId: "api-session-1",
       userId: "user-1",
     });
     prismaMock.apiSession.updateMany.mockResolvedValue({ count: 1 });
@@ -182,8 +199,13 @@ describe("mobile auth API", () => {
     expect(data.accessToken).toEqual(expect.any(String));
     expect(data.refreshToken).toEqual(expect.any(String));
     expect(data.refreshToken).not.toBe(oldRefreshToken);
+    expect(data.refreshToken).toContain(".");
     expect(updateCall.where.id).toBe("api-session-1");
     expect(updateCall.where.refreshTokenHash).toEqual(expect.any(String));
+    expect(updateCall.data.previousRefreshTokenHash).toBe(
+      hashRefreshToken(oldRefreshToken),
+    );
+    expect(updateCall.data.refreshTokenId).toEqual(expect.any(String));
     expect(updateCall.data.refreshTokenHash).not.toBe(oldRefreshToken);
     expect(updateCall.data.lastUsedAt).toBeInstanceOf(Date);
   });
@@ -219,11 +241,15 @@ describe("mobile auth API", () => {
   it("rejects a replayed refreshToken when rotation no longer matches", async () => {
     const { POST } = await import("@/app/api/mobile/auth/refresh/route");
     const refreshToken = "r".repeat(43);
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     prismaMock.apiSession.findUnique.mockResolvedValue({
       expiresAt: new Date(Date.now() + 60_000),
       id: "api-session-1",
+      refreshTokenHash: hashRefreshToken(refreshToken),
+      refreshTokenId: null,
       revokedAt: null,
+      tokenFamilyId: "family-1",
       userId: "user-1",
     });
     prismaMock.apiSession.updateMany.mockResolvedValue({ count: 0 });
@@ -233,12 +259,192 @@ describe("mobile auth API", () => {
     );
 
     expect(response.status).toBe(401);
+    expect(prismaMock.apiSession.updateMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          revokedAt: expect.any(Date),
+        }),
+        where: { tokenFamilyId: "family-1" },
+      }),
+    );
+    expect(consoleWarnSpy).toHaveBeenCalledOnce();
+    expect(consoleWarnSpy.mock.calls[0]?.[0]).not.toContain(refreshToken);
+
+    consoleWarnSpy.mockRestore();
+  });
+
+  it("returns 401 and revokes the whole token family when an old refreshToken is reused", async () => {
+    const { POST } = await import("@/app/api/mobile/auth/refresh/route");
+    const refreshTokenId = "familytokenid123456";
+    const currentRefreshToken = `${refreshTokenId}.${"c".repeat(43)}`;
+    const reusedRefreshToken = `${refreshTokenId}.${"r".repeat(43)}`;
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    prismaMock.apiSession.findUnique.mockResolvedValue({
+      expiresAt: new Date(Date.now() + 60_000),
+      id: "api-session-1",
+      refreshTokenHash: hashRefreshToken(currentRefreshToken),
+      refreshTokenId,
+      revokedAt: null,
+      tokenFamilyId: "family-1",
+      userId: "user-1",
+    });
+    prismaMock.apiSession.updateMany.mockResolvedValue({ count: 2 });
+
+    const response = await POST(
+      createJsonRequest("/api/mobile/auth/refresh", {
+        refreshToken: reusedRefreshToken,
+      }),
+    );
+    const text = await response.text();
+    const auditLog = consoleWarnSpy.mock.calls[0]?.[0] ?? "";
+
+    expect(response.status).toBe(401);
+    expect(text).toContain("再ログインしてください");
+    expect(text).not.toContain(reusedRefreshToken);
+    expect(text).not.toContain(currentRefreshToken);
+    expect(text).not.toContain(refreshTokenId);
+    expect(prismaMock.apiSession.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { refreshTokenId },
+      }),
+    );
+    expect(prismaMock.apiSession.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          lastUsedAt: expect.any(Date),
+          revokedAt: expect.any(Date),
+        }),
+        where: { tokenFamilyId: "family-1" },
+      }),
+    );
+    expect(auditLog).toContain("mobile_refresh_token_reuse_detected");
+    expect(auditLog).toContain("refresh_token_reuse");
+    expect(auditLog).not.toContain(reusedRefreshToken);
+    expect(auditLog).not.toContain(currentRefreshToken);
+    expect(auditLog).not.toContain(refreshTokenId);
+    expect(auditLog).not.toContain("Bearer ");
+    expect(auditLog).not.toContain("test-mobile-secret");
+
+    consoleWarnSpy.mockRestore();
+  });
+
+  it("detects reuse of a rotated legacy refreshToken by its previous hash", async () => {
+    const { POST } = await import("@/app/api/mobile/auth/refresh/route");
+    const rotatedLegacyRefreshToken = "r".repeat(43);
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    prismaMock.apiSession.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        expiresAt: new Date(Date.now() + 60_000),
+        id: "api-session-1",
+        previousRefreshTokenHash: hashRefreshToken(rotatedLegacyRefreshToken),
+        refreshTokenHash: hashRefreshToken(
+          `familytokenid123456.${"c".repeat(43)}`,
+        ),
+        refreshTokenId: "familytokenid123456",
+        revokedAt: null,
+        tokenFamilyId: "family-1",
+        userId: "user-1",
+      });
+    prismaMock.apiSession.updateMany.mockResolvedValue({ count: 1 });
+
+    const response = await POST(
+      createJsonRequest("/api/mobile/auth/refresh", {
+        refreshToken: rotatedLegacyRefreshToken,
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(prismaMock.apiSession.findUnique).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: {
+          previousRefreshTokenHash: hashRefreshToken(rotatedLegacyRefreshToken),
+        },
+      }),
+    );
+    expect(prismaMock.apiSession.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tokenFamilyId: "family-1" },
+      }),
+    );
+    expect(consoleWarnSpy.mock.calls[0]?.[0]).not.toContain(
+      rotatedLegacyRefreshToken,
+    );
+
+    consoleWarnSpy.mockRestore();
+  });
+
+  it("does not refresh the same family after reuse detection revoked it", async () => {
+    const { POST } = await import("@/app/api/mobile/auth/refresh/route");
+    const refreshTokenId = "familytokenid123456";
+    const refreshToken = `${refreshTokenId}.${"c".repeat(43)}`;
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    prismaMock.apiSession.findUnique.mockResolvedValue({
+      expiresAt: new Date(Date.now() + 60_000),
+      id: "api-session-1",
+      refreshTokenHash: hashRefreshToken(refreshToken),
+      refreshTokenId,
+      revokedAt: new Date(),
+      tokenFamilyId: "family-1",
+      userId: "user-1",
+    });
+    prismaMock.apiSession.updateMany.mockResolvedValue({ count: 2 });
+
+    const response = await POST(
+      createJsonRequest("/api/mobile/auth/refresh", { refreshToken }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(prismaMock.apiSession.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tokenFamilyId: "family-1" },
+      }),
+    );
+
+    consoleWarnSpy.mockRestore();
+  });
+
+  it("does not refresh an expired refreshToken and revokes its token family", async () => {
+    const { POST } = await import("@/app/api/mobile/auth/refresh/route");
+    const refreshTokenId = "familytokenid123456";
+    const refreshToken = `${refreshTokenId}.${"e".repeat(43)}`;
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    prismaMock.apiSession.findUnique.mockResolvedValue({
+      expiresAt: new Date(Date.now() - 60_000),
+      id: "api-session-1",
+      refreshTokenHash: hashRefreshToken(refreshToken),
+      refreshTokenId,
+      revokedAt: null,
+      tokenFamilyId: "family-1",
+      userId: "user-1",
+    });
+    prismaMock.apiSession.updateMany.mockResolvedValue({ count: 1 });
+
+    const response = await POST(
+      createJsonRequest("/api/mobile/auth/refresh", { refreshToken }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(prismaMock.apiSession.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tokenFamilyId: "family-1" },
+      }),
+    );
+
+    consoleWarnSpy.mockRestore();
   });
 
   it("does not refresh after logout revokes the ApiSession", async () => {
     const { POST: logout } = await import("@/app/api/mobile/auth/logout/route");
     const { POST: refresh } = await import("@/app/api/mobile/auth/refresh/route");
     const refreshToken = "r".repeat(43);
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     prismaMock.apiSession.updateMany.mockResolvedValue({ count: 1 });
 
@@ -249,7 +455,10 @@ describe("mobile auth API", () => {
     prismaMock.apiSession.findUnique.mockResolvedValue({
       expiresAt: new Date(Date.now() + 60_000),
       id: "api-session-1",
+      refreshTokenHash: hashRefreshToken(refreshToken),
+      refreshTokenId: null,
       revokedAt: new Date(),
+      tokenFamilyId: "family-1",
       userId: "user-1",
     });
 
@@ -259,6 +468,13 @@ describe("mobile auth API", () => {
 
     expect(logoutResponse.status).toBe(200);
     expect(refreshResponse.status).toBe(401);
+    expect(prismaMock.apiSession.updateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: { tokenFamilyId: "family-1" },
+      }),
+    );
+
+    consoleWarnSpy.mockRestore();
   });
 
   it("rejects an invalid refreshToken", async () => {
@@ -390,6 +606,35 @@ describe("mobile auth API", () => {
     );
 
     expect(user).toBeNull();
+    expect(prismaMock.apiSession.update).not.toHaveBeenCalled();
+  });
+
+  it("mobile post API rejects a valid Bearer token after its token family is revoked", async () => {
+    const { GET } = await import("@/app/api/mobile/posts/route");
+    const token = await new SignJWT({})
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("user-1")
+      .setJti("api-session-1")
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(new TextEncoder().encode(process.env.MOBILE_AUTH_SECRET!));
+
+    prismaMock.apiSession.findUnique.mockResolvedValue({
+      expiresAt: new Date(Date.now() + 60_000),
+      revokedAt: new Date(),
+      user: { id: "user-1" },
+      userId: "user-1",
+    });
+
+    const response = await GET(
+      new Request("http://localhost:3000/api/mobile/posts", {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+    );
+    const text = await response.text();
+
+    expect(response.status).toBe(401);
+    expect(text).not.toContain(token);
     expect(prismaMock.apiSession.update).not.toHaveBeenCalled();
   });
 });
