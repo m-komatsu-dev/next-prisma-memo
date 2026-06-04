@@ -25,9 +25,11 @@ export type MobilePost = {
   accessRole: "owner" | "editor" | "viewer" | "public";
   authorId: string;
   id: number;
+  kind: "text" | "dueTodo";
   title: string;
   content: string;
   todoItems?: MobileTodoItem[];
+  todoListDueAt: string | null;
   published: boolean;
   createdAt: string;
   updatedAt: string;
@@ -47,6 +49,8 @@ export type MobilePostPayload = {
   content: string;
   tags: string;
   published: boolean;
+  kind?: "text" | "dueTodo";
+  todoListDueAt?: string | null;
 };
 
 export type MobileTodoItemPayload = {

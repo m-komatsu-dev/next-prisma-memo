@@ -32,6 +32,60 @@ const dateTimeFormatter = new Intl.DateTimeFormat("ja-JP", {
   timeStyle: "short",// 時刻は「14:30」のような短めの表示にします。
 });
 
+const todoPreviewDateFormatter = new Intl.DateTimeFormat("ja-JP", {
+  month: "2-digit",
+  day: "2-digit",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
+function isTodoListPost(post: PostDetail) {
+  return (
+    post.kind === "dueTodo" ||
+    post.todoListDueAt !== null ||
+    post.content.trim() === "期限付きTodo"
+  );
+}
+
+function TodoItemsContentPreview({ post }: { post: PostDetail }) {
+  const todoItems = post.todoItems
+    .slice()
+    .sort((a, b) => a.position - b.position || a.id - b.id);
+
+  if (todoItems.length === 0) {
+    return <p className="memo-todo-preview__empty">Todo項目なし</p>;
+  }
+
+  return (
+    <ul className="memo-todo-preview memo-todo-preview--detail" aria-label="Todo項目">
+      {todoItems.slice(0, 6).map((todoItem) => (
+        <li
+          className={[
+            "memo-todo-preview__item",
+            todoItem.completed ? "memo-todo-preview__item--completed" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          key={todoItem.id}
+        >
+          <span className="memo-todo-preview__check" aria-hidden="true">
+            {todoItem.completed ? "✓" : ""}
+          </span>
+          <span className="memo-todo-preview__text">{todoItem.text}</span>
+          {todoItem.dueAt && (
+            <span className="memo-todo-preview__due">
+              期限 {todoPreviewDateFormatter.format(todoItem.dueAt)}
+            </span>
+          )}
+        </li>
+      ))}
+      {todoItems.length > 6 && (
+        <li className="memo-todo-preview__more">他 {todoItems.length - 6} 件</li>
+      )}
+    </ul>
+  );
+}
+
 export default async function PostDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   const { id } = await params;
@@ -73,6 +127,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
   const canManage = accessRole === "owner";  // ログイン中のユーザーが、このメモの作成者かどうかを判定します。
   const canEdit = canEditPost(accessRole);
   const canDelete = canDeletePost(accessRole);
+  const isTodoList = isTodoListPost(post);
   const authorDisplayName = canManage ? session.user.name ?? "あなた" : "匿名ユーザー";// 他人の公開メモでは作成者の個人情報を出さず、本人のメモだけ自分の名前を表示します。
   const sharedUsers = canManage
     ? await prisma.postShare.findMany({
@@ -205,6 +260,12 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
                 <dt>カテゴリー</dt>
                 <dd>{post.tags.length > 0 ? post.tags.map((tag) => tag.name).join(" / ") : "未分類"}</dd>
               </div>
+              {isTodoList && post.todoListDueAt && (
+                <div>
+                  <dt>リスト期限</dt>
+                  <dd>{dateTimeFormatter.format(post.todoListDueAt)}</dd>
+                </div>
+              )}
             </dl>
 
             {/* タグが 1 つ以上ある場合だけ、タグ一覧を表示します。 */}
@@ -218,24 +279,28 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
           </header>
 
           <div className="post-content">
-            <TodoListContent content={post.content} />
+            {isTodoList ? <TodoItemsContentPreview post={post} /> : <TodoListContent content={post.content} />}
           </div>
         </article>
 
-        <TodoItemsPanel
-          canEdit={canEdit}
-          nowIso={new Date().toISOString()}
-          postId={post.id}
-          todoItems={post.todoItems.map((todoItem) => ({
-            completed: todoItem.completed,
-            dueAt: todoItem.dueAt?.toISOString() ?? null,
-            id: todoItem.id,
-            position: todoItem.position,
-            reminderAt: todoItem.reminderAt?.toISOString() ?? null,
-            reminderSentAt: todoItem.reminderSentAt?.toISOString() ?? null,
-            text: todoItem.text,
-          }))}
-        />
+        {post.todoItems.length > 0 && (
+          <TodoItemsPanel
+            canEdit={canEdit}
+            forceDueTodo={isTodoList}
+            hideCreateForm
+            nowIso={new Date().toISOString()}
+            postId={post.id}
+            todoItems={post.todoItems.map((todoItem) => ({
+              completed: todoItem.completed,
+              dueAt: todoItem.dueAt?.toISOString() ?? null,
+              id: todoItem.id,
+              position: todoItem.position,
+              reminderAt: todoItem.reminderAt?.toISOString() ?? null,
+              reminderSentAt: todoItem.reminderSentAt?.toISOString() ?? null,
+              text: todoItem.text,
+            }))}
+          />
+        )}
 
         {canManage && (
           <PostShareSettings

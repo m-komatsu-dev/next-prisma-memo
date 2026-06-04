@@ -640,6 +640,64 @@ textarea {
   padding: 0 2px;
 }
 
+.memo-todo-preview {
+  display: grid;
+  min-height: 96px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  gap: 6px;
+}
+
+.memo-todo-preview__item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.memo-todo-preview__check {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  color: var(--primary-strong);
+  font-size: 0.74rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.memo-todo-preview__item--completed .memo-todo-preview__text {
+  color: var(--text-soft);
+  text-decoration: line-through;
+}
+
+.memo-todo-preview__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memo-todo-preview__due {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.memo-todo-preview__empty,
+.memo-todo-preview__more {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
 .memo-tags {
   display: flex;
   min-height: 28px;
@@ -1799,6 +1857,97 @@ textarea {
   border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, 0.9);
   box-shadow: var(--shadow-card);
+}
+
+.post-editor__field {
+  display: grid;
+  gap: 8px;
+  padding: clamp(18px, 4vw, 28px) clamp(20px, 4vw, 38px);
+}
+
+.post-editor__field + .post-editor__field {
+  border-top: 1px solid var(--border);
+}
+
+.post-editor__field span {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.post-editor__field input,
+.due-todo-form__item input {
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #ffffff;
+  padding: 0 12px;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.post-editor__title--compact {
+  min-height: 56px;
+  padding: 0;
+  font-size: clamp(1.3rem, 4vw, 2rem);
+}
+
+.due-todo-form {
+  display: grid;
+  gap: 18px;
+}
+
+.due-todo-form__sheet {
+  display: grid;
+}
+
+.due-todo-form__items {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  padding: clamp(18px, 4vw, 28px) clamp(20px, 4vw, 38px);
+}
+
+.due-todo-form__items-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.due-todo-form__items-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.due-todo-form__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.9fr) auto;
+  gap: 10px;
+  align-items: end;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.due-todo-form__item label {
+  display: grid;
+  gap: 7px;
+}
+
+.due-todo-form__item label span {
+  color: var(--text-soft);
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
+.memo-card__due {
+  width: fit-content;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  padding: 6px 10px;
+  color: var(--primary-strong);
+  font-size: 0.82rem;
+  font-weight: 900;
 }
 
 .post-editor__title,
@@ -3815,6 +3964,10 @@ textarea {
   }
 
   .new-post-choice__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .due-todo-form__item {
     grid-template-columns: 1fr;
   }
 

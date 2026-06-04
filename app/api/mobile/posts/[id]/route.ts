@@ -136,6 +136,8 @@ export async function PATCH(
     id: postId,
     title: rawPayload.title,
     content: rawPayload.content,
+    kind: rawPayload.kind,
+    todoListDueAt: rawPayload.todoListDueAt,
     published: rawPayload.published,
     tags: rawPayload.tags ?? "",
   });
@@ -196,6 +198,8 @@ export async function PATCH(
         data: {
           title: payload.title.trim(),
           content: payload.content.trim(),
+          kind: payload.kind,
+          todoListDueAt: payload.kind === "dueTodo" ? payload.todoListDueAt : null,
           ...(accessiblePost.authorId === authUser.id
             ? { published: payload.published }
             : {}),

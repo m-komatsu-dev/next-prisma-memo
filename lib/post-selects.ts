@@ -29,6 +29,8 @@ export function getMemoListPostSelect(userId: string) {
     title: true,
     content: true,
     published: true,
+    kind: true,
+    todoListDueAt: true,
     authorId: true,
     createdAt: true,
     updatedAt: true,
@@ -49,6 +51,8 @@ export function getPostDetailSelect(userId: string) {
     title: true,
     content: true,
     published: true,
+    kind: true,
+    todoListDueAt: true,
     authorId: true,
     createdAt: true,
     updatedAt: true,
@@ -69,6 +73,8 @@ export function getPostEditorSelect(userId: string) {
     title: true,
     content: true,
     published: true,
+    kind: true,
+    todoListDueAt: true,
     authorId: true,
     tags: {
       select: {
@@ -90,6 +96,8 @@ export const memoListPostSelect = {
   title: true,
   content: true,
   published: true,
+  kind: true,
+  todoListDueAt: true,
   authorId: true,
   createdAt: true,
   updatedAt: true,
@@ -101,6 +109,8 @@ export const postDetailSelect = {
   title: true,
   content: true,
   published: true,
+  kind: true,
+  todoListDueAt: true,
   authorId: true,
   createdAt: true,
   updatedAt: true,
@@ -112,6 +122,8 @@ export const postEditorSelect = {
   title: true,
   content: true,
   published: true,
+  kind: true,
+  todoListDueAt: true,
   authorId: true,
   tags: {
     select: {

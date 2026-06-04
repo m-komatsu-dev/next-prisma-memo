@@ -24,6 +24,8 @@ export type PostFormProps = {
     content: string;
     tags: string;
     published: boolean;
+    kind?: "text" | "dueTodo";
+    todoListDueAt?: string | null;
     todoNowIso: string;
     todoItems?: PostFormTodoItem[];
   };

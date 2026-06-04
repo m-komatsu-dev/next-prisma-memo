@@ -56,6 +56,8 @@ export async function autoSaveEditPost(data: PostDraftPayloadInput) {
         data: {
           title: payload.title.trim() || "無題の下書き",
           content: payload.content,
+          kind: payload.kind,
+          todoListDueAt: payload.kind === "dueTodo" ? payload.todoListDueAt : null,
           ...(editablePost.authorId === userId
             ? { published: payload.published ?? false }
             : {}),
@@ -116,6 +118,8 @@ export async function saveEditPost(data: PostSavePayloadInput) {
         data: {
           title: payload.title.trim(),
           content: payload.content.trim(),
+          kind: payload.kind,
+          todoListDueAt: payload.kind === "dueTodo" ? payload.todoListDueAt : null,
           ...(editablePost.authorId === userId
             ? { published: payload.published }
             : {}),

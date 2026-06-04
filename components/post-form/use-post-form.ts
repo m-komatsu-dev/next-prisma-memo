@@ -27,6 +27,7 @@ export function usePostForm({
     initialPost?.content ??
       (mode === "new" && creationKind === "todo" ? "期限付きTodo" : ""),
   );
+  const [todoListDueAt, setTodoListDueAt] = useState(initialPost?.todoListDueAt ?? "");
   const [tags, setTags] = useState(initialPost?.tags ?? "");
   const [published, setPublished] = useState(initialPost?.published ?? false);
   const [status, setStatus] = useState<SaveStatus>("idle");
@@ -41,6 +42,7 @@ export function usePostForm({
       content: initialPost?.content ?? "",
       tags: initialPost?.tags ?? "",
       published: initialPost?.published ?? false,
+      todoListDueAt: initialPost?.todoListDueAt ?? "",
     }),
   );
 
@@ -56,8 +58,13 @@ export function usePostForm({
       content,
       tags,
       published,
+      kind: initialPost?.kind ?? (creationKind === "todo" ? "dueTodo" : "text"),
+      todoListDueAt:
+        initialPost?.kind === "dueTodo" || creationKind === "todo"
+          ? todoListDueAt || null
+          : null,
     }),
-    [content, postId, published, tags, title],
+    [content, creationKind, initialPost?.kind, postId, published, tags, title, todoListDueAt],
   );
 
   const initialSignature = useMemo(() => {
@@ -67,12 +74,13 @@ export function usePostForm({
       content: initialPost.content,
       tags: initialPost.tags,
       published: initialPost.published,
+      todoListDueAt: initialPost.todoListDueAt ?? "",
     });
   }, [initialPost]);
 
   const currentSignature = useMemo(
-    () => JSON.stringify({ title, content, tags, published }),
-    [content, published, tags, title],
+    () => JSON.stringify({ title, content, tags, published, todoListDueAt }),
+    [content, published, tags, title, todoListDueAt],
   );
 
   const runAutoSaveAction = useCallback(
@@ -121,6 +129,10 @@ export function usePostForm({
 
   const ensureDraftPost = useCallback(async () => {
     if (postId) return postId;
+    if (mode === "new" && creationKind === "todo") {
+      if (!title.trim()) throw new Error("Todoリストのタイトルを入力してください。");
+      if (!todoListDueAt) throw new Error("Todoリスト全体の期限を入力してください。");
+    }
 
     setStatus("saving");
     const result = await runAutoSaveAction(payload);
@@ -135,7 +147,7 @@ export function usePostForm({
 
     setStatus("error");
     throw new Error(result.message ?? "下書きメモの作成に失敗しました。");
-  }, [currentSignature, payload, postId, runAutoSaveAction]);
+  }, [creationKind, currentSignature, mode, payload, postId, runAutoSaveAction, title, todoListDueAt]);
 
   useEffect(() => {
     const timer = setTimeout(handleAutoSave, 1800);
@@ -172,6 +184,8 @@ export function usePostForm({
         content: String(formData.get("content") || ""),
         tags: String(formData.get("tags") || ""),
         published,
+        kind: String(formData.get("kind") || payload.kind) as "text" | "dueTodo",
+        todoListDueAt: String(formData.get("todoListDueAt") || "") || null,
       };
 
       if (mode === "new" && !savePostId) {
@@ -210,6 +224,8 @@ export function usePostForm({
     setContent,
     tags,
     setTags,
+    todoListDueAt,
+    setTodoListDueAt,
     published,
     status,
     aiOpen,

@@ -10,6 +10,7 @@ import {
 } from "@/lib/server-errors";
 import {
   getFirstZodErrorMessage,
+  dueTodoListCreateSchema,
   postDraftPayloadSchema,
   postSavePayloadSchema,
   type PostDraftPayloadInput,
@@ -43,6 +44,8 @@ export async function autoSaveNewPost(data: PostDraftPayloadInput) {
             title,
             content,
             published: false,
+            kind: payload.kind,
+            todoListDueAt: payload.kind === "dueTodo" ? payload.todoListDueAt : null,
             tags: {
               set: [],
               connectOrCreate: tagsData,
@@ -55,6 +58,8 @@ export async function autoSaveNewPost(data: PostDraftPayloadInput) {
             title,
             content,
             published: false,
+            kind: payload.kind,
+            todoListDueAt: payload.kind === "dueTodo" ? payload.todoListDueAt : null,
             authorId: session.user.id,
             tags: {
               connectOrCreate: tagsData,
@@ -100,6 +105,8 @@ export async function saveNewPost(data: PostSavePayloadInput) {
           title,
           content,
           published: payload.published,
+          kind: payload.kind,
+          todoListDueAt: payload.kind === "dueTodo" ? payload.todoListDueAt : null,
           tags: {
             set: [],
             connectOrCreate: tagsData,
@@ -112,6 +119,8 @@ export async function saveNewPost(data: PostSavePayloadInput) {
           title,
           content,
           published: payload.published,
+          kind: payload.kind,
+          todoListDueAt: payload.kind === "dueTodo" ? payload.todoListDueAt : null,
           authorId: session.user.id,
           tags: {
             connectOrCreate: tagsData,
@@ -132,5 +141,58 @@ export async function saveNewPost(data: PostSavePayloadInput) {
   }
 
   revalidatePath("/posts");
+  redirect("/posts");
+}
+
+export async function createDueTodoListPost(data: unknown) {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/");
+
+  const validatedFields = dueTodoListCreateSchema.safeParse(data);
+  if (!validatedFields.success) {
+    return {
+      success: false,
+      message: getFirstZodErrorMessage(validatedFields.error),
+    };
+  }
+
+  const payload = validatedFields.data;
+  const tagsData = buildTagsConnectOrCreate(payload.tags);
+
+  try {
+    await prisma.post.create({
+      data: {
+        title: payload.title,
+        content: "期限付きTodo",
+        published: false,
+        kind: "dueTodo",
+        todoListDueAt: payload.todoListDueAt,
+        authorId: session.user.id,
+        tags: {
+          connectOrCreate: tagsData,
+        },
+        todoItems: {
+          create: payload.items.map((item, index) => ({
+            text: item.text,
+            dueAt: item.dueAt,
+            position: index,
+          })),
+        },
+      },
+    });
+  } catch (error) {
+    logServerError(error, {
+      action: "createDueTodoListPost",
+      userId: session.user.id,
+    });
+    return {
+      success: false,
+      message: getPublicErrorMessage(error, "期限付きTodoの作成に失敗しました。"),
+    };
+  }
+
+  revalidatePath("/posts");
+  revalidatePath("/todos");
+  revalidatePath("/todos/calendar");
   redirect("/posts");
 }

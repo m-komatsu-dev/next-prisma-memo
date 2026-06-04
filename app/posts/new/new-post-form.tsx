@@ -3,6 +3,7 @@
 import PostForm from "@/components/post-form";
 import { useState } from "react";
 import { autoSaveNewPost, saveNewPost } from "./actions";
+import DueTodoListForm from "./due-todo-list-form";
 
 export default function NewPostForm() {
   const [creationKind, setCreationKind] = useState<"text" | "todo" | null>(null);
@@ -36,6 +37,10 @@ export default function NewPostForm() {
         </div>
       </div>
     );
+  }
+
+  if (creationKind === "todo") {
+    return <DueTodoListForm />;
   }
 
   return (

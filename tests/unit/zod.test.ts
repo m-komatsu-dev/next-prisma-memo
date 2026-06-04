@@ -61,6 +61,7 @@ describe("zod validation", () => {
     ).toEqual({
       title: "",
       content: "",
+      kind: "text",
       tags: ["work", "memo"],
     });
   });
@@ -89,6 +90,7 @@ describe("zod validation", () => {
       id: 42,
       title: "Memo",
       content: "Body",
+      kind: "text",
       tags: ["alpha", "beta"],
       published: true,
     });
