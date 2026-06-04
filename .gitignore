@@ -11,8 +11,14 @@ dist/
 
 # environment variables
 .env
+.env.*
+!.env.example
+!.env.test.example
 .env.test
 .env*.local
+mobile/.env
+mobile/.env.*
+!mobile/.env.example
 
 # logs
 npm-debug.log*

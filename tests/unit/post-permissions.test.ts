@@ -5,6 +5,7 @@ import {
   canManagePostShares,
   canReadPost,
   getEditablePostWhere,
+  getMobileReadablePostWhere,
   getPostAccessRole,
   type PostAccessRole,
 } from "@/lib/post-permissions";
@@ -62,6 +63,13 @@ describe("post permissions", () => {
         { authorId: "user-1" },
         { shares: { some: { userId: "user-1", role: "editor" } } },
       ],
+    });
+  });
+
+  it("builds mobile readable filters without public-post access", () => {
+    expect(getMobileReadablePostWhere(42, "user-1")).toEqual({
+      id: 42,
+      OR: [{ authorId: "user-1" }, { shares: { some: { userId: "user-1" } } }],
     });
   });
 
