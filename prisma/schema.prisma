@@ -153,13 +153,16 @@ model Session {
 }
 
 model ApiSession {
-  id               String    @id @default(cuid())
-  userId           String
-  refreshTokenHash String    @unique @db.Text
-  expiresAt        DateTime
-  revokedAt        DateTime?
-  lastUsedAt       DateTime?
-  userAgent        String?   @db.Text
+  id                       String    @id @default(cuid())
+  userId                   String
+  tokenFamilyId            String    @default(cuid())
+  refreshTokenId           String?   @unique
+  previousRefreshTokenHash String?   @unique @db.Text
+  refreshTokenHash         String    @unique @db.Text
+  expiresAt                DateTime
+  revokedAt                DateTime?
+  lastUsedAt               DateTime?
+  userAgent                String?   @db.Text
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -167,6 +170,8 @@ model ApiSession {
   updatedAt DateTime @updatedAt
 
   @@index([userId])
+  @@index([tokenFamilyId])
+  @@index([tokenFamilyId, revokedAt])
   @@index([expiresAt])
   @@index([revokedAt])
 }
