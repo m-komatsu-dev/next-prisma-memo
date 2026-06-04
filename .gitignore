@@ -50,3 +50,4 @@ app/prisma/
 
 # OpenAI Codex
 .agents/
+*.dump
