@@ -1,5 +1,14 @@
 import { refreshMobileApiSession } from "@/lib/mobile-auth";
 import { mobileCorsOptions, withMobileCors } from "@/lib/mobile-cors";
+import {
+  MOBILE_REFRESH_IP_RATE_LIMIT,
+  MOBILE_REFRESH_TOKEN_RATE_LIMIT,
+  RATE_LIMIT_MESSAGE,
+  consumeRateLimit,
+  getClientIp,
+  getRateLimitHeaders,
+  makeRateLimitKey,
+} from "@/lib/rate-limit";
 import { logServerError } from "@/lib/server-errors";
 import { mobileRefreshTokenRequestSchema } from "@/lib/zod";
 import { NextResponse } from "next/server";
@@ -9,6 +18,24 @@ const invalidRefreshTokenResponse = {
 };
 
 export async function POST(request: Request) {
+  const ipRateLimit = consumeRateLimit(
+    makeRateLimitKey("mobile-refresh:ip", [getClientIp(request)]),
+    MOBILE_REFRESH_IP_RATE_LIMIT,
+  );
+
+  if (!ipRateLimit.allowed) {
+    return withMobileCors(
+      request,
+      NextResponse.json(
+        { error: RATE_LIMIT_MESSAGE },
+        {
+          headers: getRateLimitHeaders(ipRateLimit),
+          status: 429,
+        },
+      ),
+    );
+  }
+
   let body: unknown;
 
   try {
@@ -31,6 +58,26 @@ export async function POST(request: Request) {
       NextResponse.json(
         { error: "refreshTokenの形式が正しくありません。" },
         { status: 400 },
+      ),
+    );
+  }
+
+  const tokenRateLimit = consumeRateLimit(
+    makeRateLimitKey("mobile-refresh:token", [
+      validatedFields.data.refreshToken,
+    ]),
+    MOBILE_REFRESH_TOKEN_RATE_LIMIT,
+  );
+
+  if (!tokenRateLimit.allowed) {
+    return withMobileCors(
+      request,
+      NextResponse.json(
+        { error: RATE_LIMIT_MESSAGE },
+        {
+          headers: getRateLimitHeaders(tokenRateLimit),
+          status: 429,
+        },
       ),
     );
   }

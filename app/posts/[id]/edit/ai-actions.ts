@@ -4,6 +4,12 @@
 import { auth } from "@/auth";
 import type { AiMode } from "@/lib/ai-modes";
 import { AiContentError, generateAiResult } from "@/lib/ai-content";
+import {
+  AI_USER_RATE_LIMIT,
+  RATE_LIMIT_MESSAGE,
+  consumeRateLimit,
+  makeRateLimitKey,
+} from "@/lib/rate-limit";
 import { logServerError } from "@/lib/server-errors";
 import {
   aiContentRequestSchema,
@@ -35,6 +41,14 @@ export async function generateAiContent(content: string, mode: AiMode): Promise<
   }
 
   const { content: trimmedContent, mode: validatedMode } = validatedFields.data;// 入力された内容の前後の空白を削除したものを使います。AIに渡す前に、無駄な空白を減らして内容をすっきりさせるためです。
+  const rateLimit = consumeRateLimit(
+    makeRateLimitKey("ai:user", [session.user.id]),
+    AI_USER_RATE_LIMIT,
+  );
+
+  if (!rateLimit.allowed) {
+    return { success: false, result: RATE_LIMIT_MESSAGE };
+  }
 
   try {
     const result = await generateAiResult(trimmedContent, validatedMode);

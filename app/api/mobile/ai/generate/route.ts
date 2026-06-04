@@ -1,6 +1,13 @@
 import { AiContentError, generateAiResult } from "@/lib/ai-content";
 import { getMobileAuthUser } from "@/lib/mobile-auth";
 import { mobileCorsOptions, withMobileCors } from "@/lib/mobile-cors";
+import {
+  AI_USER_RATE_LIMIT,
+  RATE_LIMIT_MESSAGE,
+  consumeRateLimit,
+  getRateLimitHeaders,
+  makeRateLimitKey,
+} from "@/lib/rate-limit";
 import { logServerError } from "@/lib/server-errors";
 import {
   aiGeneratedResultSchema,
@@ -20,6 +27,24 @@ export async function POST(request: Request) {
     return withMobileCors(
       request,
       NextResponse.json({ error: "ログインが必要です。" }, { status: 401 }),
+    );
+  }
+
+  const rateLimit = consumeRateLimit(
+    makeRateLimitKey("ai:user", [authUser.id]),
+    AI_USER_RATE_LIMIT,
+  );
+
+  if (!rateLimit.allowed) {
+    return withMobileCors(
+      request,
+      NextResponse.json(
+        { error: RATE_LIMIT_MESSAGE },
+        {
+          headers: getRateLimitHeaders(rateLimit),
+          status: 429,
+        },
+      ),
     );
   }
 

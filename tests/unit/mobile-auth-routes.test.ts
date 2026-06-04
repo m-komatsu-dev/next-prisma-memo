@@ -1,8 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SignJWT } from "jose";
+import {
+  AI_USER_RATE_LIMIT,
+  CREDENTIALS_LOGIN_EMAIL_IP_RATE_LIMIT,
+  MOBILE_REFRESH_TOKEN_RATE_LIMIT,
+  resetAllRateLimits,
+} from "@/lib/rate-limit";
 
 const authMock = vi.hoisted(() => vi.fn());
 const bcryptCompareMock = vi.hoisted(() => vi.fn());
+const generateAiResultMock = vi.hoisted(() => vi.fn());
 const prismaMock = vi.hoisted(() => ({
   apiSession: {
     create: vi.fn(),
@@ -22,6 +29,15 @@ vi.mock("@/auth", () => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: prismaMock,
 }));
+
+vi.mock("@/lib/ai-content", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/ai-content")>();
+
+  return {
+    ...actual,
+    generateAiResult: generateAiResultMock,
+  };
+});
 
 vi.mock("bcrypt", () => ({
   default: {
@@ -45,6 +61,7 @@ describe("mobile auth API", () => {
     process.env.AUTH_SECRET = "test-secret-for-mobile-auth-route-tests";
     process.env.MOBILE_AUTH_SECRET = "test-mobile-secret-for-mobile-auth-route-tests";
     authMock.mockResolvedValue(null);
+    resetAllRateLimits();
     vi.clearAllMocks();
   });
 
@@ -81,6 +98,63 @@ describe("mobile auth API", () => {
     expect(createCall.data.userAgent).toBe("Vitest Mobile");
   });
 
+  it("login allows attempts within the credentials rate limit", async () => {
+    const { POST } = await import("@/app/api/mobile/auth/login/route");
+
+    prismaMock.user.findUnique.mockResolvedValue({
+      email: "user@example.com",
+      id: "user-1",
+      name: "User",
+      password: "hashed-password",
+    });
+    bcryptCompareMock.mockResolvedValue(false);
+
+    const response = await POST(
+      createJsonRequest("/api/mobile/auth/login", {
+        email: "user@example.com",
+        password: "wrong-password",
+      }),
+    );
+
+    expect(response.status).toBe(401);
+  });
+
+  it("login returns 429 after repeated credential failures", async () => {
+    const { POST } = await import("@/app/api/mobile/auth/login/route");
+
+    prismaMock.user.findUnique.mockResolvedValue({
+      email: "user@example.com",
+      id: "user-1",
+      name: "User",
+      password: "hashed-password",
+    });
+    bcryptCompareMock.mockResolvedValue(false);
+
+    for (let index = 0; index < CREDENTIALS_LOGIN_EMAIL_IP_RATE_LIMIT.max; index += 1) {
+      const response = await POST(
+        createJsonRequest("/api/mobile/auth/login", {
+          email: "user@example.com",
+          password: "wrong-password",
+        }),
+      );
+
+      expect(response.status).toBe(401);
+    }
+
+    const response = await POST(
+      createJsonRequest("/api/mobile/auth/login", {
+        email: "user@example.com",
+        password: "wrong-password",
+      }),
+    );
+    const text = await response.text();
+
+    expect(response.status).toBe(429);
+    expect(text).toContain("試行回数が多すぎます");
+    expect(text).not.toContain("wrong-password");
+    expect(text).not.toContain("user@example.com");
+  });
+
   it("refresh returns a new accessToken and rotated refreshToken", async () => {
     const { POST } = await import("@/app/api/mobile/auth/refresh/route");
     const oldRefreshToken = "r".repeat(43);
@@ -112,6 +186,34 @@ describe("mobile auth API", () => {
     expect(updateCall.where.refreshTokenHash).toEqual(expect.any(String));
     expect(updateCall.data.refreshTokenHash).not.toBe(oldRefreshToken);
     expect(updateCall.data.lastUsedAt).toBeInstanceOf(Date);
+  });
+
+  it("refresh returns 429 after repeated attempts for the same token", async () => {
+    const { POST } = await import("@/app/api/mobile/auth/refresh/route");
+    const refreshToken = "r".repeat(43);
+
+    prismaMock.apiSession.findUnique.mockResolvedValue(null);
+
+    for (let index = 0; index < MOBILE_REFRESH_TOKEN_RATE_LIMIT.max; index += 1) {
+      const response = await POST(
+        createJsonRequest("/api/mobile/auth/refresh", { refreshToken }),
+      );
+
+      expect(response.status).toBe(401);
+    }
+
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await POST(
+      createJsonRequest("/api/mobile/auth/refresh", { refreshToken }),
+    );
+    const text = await response.text();
+
+    expect(response.status).toBe(429);
+    expect(text).toContain("試行回数が多すぎます");
+    expect(text).not.toContain(refreshToken);
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+
+    consoleErrorSpy.mockRestore();
   });
 
   it("rejects a replayed refreshToken when rotation no longer matches", async () => {
@@ -171,6 +273,38 @@ describe("mobile auth API", () => {
     );
 
     expect(response.status).toBe(401);
+  });
+
+  it("AI generate returns 429 after repeated requests by the same user", async () => {
+    const { POST } = await import("@/app/api/mobile/ai/generate/route");
+
+    authMock.mockResolvedValue({ user: { id: "user-1" } });
+    prismaMock.user.findUnique.mockResolvedValue({ id: "user-1" });
+    generateAiResultMock.mockResolvedValue("生成結果");
+
+    for (let index = 0; index < AI_USER_RATE_LIMIT.max; index += 1) {
+      const response = await POST(
+        createJsonRequest("/api/mobile/ai/generate", {
+          content: "本文",
+          mode: "summarize",
+        }),
+      );
+
+      expect(response.status).toBe(200);
+    }
+
+    const response = await POST(
+      createJsonRequest("/api/mobile/ai/generate", {
+        content: "本文",
+        mode: "summarize",
+      }),
+    );
+    const text = await response.text();
+
+    expect(response.status).toBe(429);
+    expect(text).toContain("試行回数が多すぎます");
+    expect(text).not.toContain("user-1");
+    expect(generateAiResultMock).toHaveBeenCalledTimes(AI_USER_RATE_LIMIT.max);
   });
 
   it("mobile post API rejects an invalid Bearer token with 401", async () => {
