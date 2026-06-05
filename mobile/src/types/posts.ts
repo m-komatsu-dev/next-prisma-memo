@@ -106,3 +106,20 @@ export type MobileAiMode =
 export type MobileAiGenerateResponse = {
   result: string;
 };
+
+export type MobileNotification = {
+  body: string | null;
+  createdAt: string;
+  id: string;
+  postId: number | null;
+  postShareId: number | null;
+  readAt: string | null;
+  title: string;
+  type: string;
+  updatedAt: string;
+};
+
+export type MobileNotificationsResponse = {
+  notifications: MobileNotification[];
+  unreadCount: number;
+};

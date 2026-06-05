@@ -63,6 +63,12 @@ function stringOrNumberIdSchema(fieldName: string) {
 export const postIdValueSchema = stringOrNumberIdSchema("メモID");
 export const postShareIdValueSchema = stringOrNumberIdSchema("共有設定ID");
 export const todoItemIdValueSchema = stringOrNumberIdSchema("Todo ID");
+export const notificationIdValueSchema = z
+  .string({ error: "通知IDの形式が正しくありません。" })
+  .trim()
+  .min(1, "通知IDの形式が正しくありません。")
+  .max(128, "通知IDの形式が正しくありません。")
+  .regex(/^[A-Za-z0-9_-]+$/, "通知IDの形式が正しくありません。");
 
 export const postTitleSchema = safeString("タイトル", 120);
 export const postContentSchema = safeString("本文", 20_000);
