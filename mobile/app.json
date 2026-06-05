@@ -5,7 +5,10 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "my-memo",
+    "scheme": [
+      "mymemo",
+      "my-memo"
+    ],
     "userInterfaceStyle": "light",
     "assetBundlePatterns": [
       "**/*"

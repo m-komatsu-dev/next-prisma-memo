@@ -1,5 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import * as Clipboard from "expo-clipboard";
+import * as WebBrowser from "expo-web-browser";
 import {
   ActivityIndicator,
   Alert,
@@ -20,6 +21,7 @@ import {
 import { generateMobileAiContent } from "./src/api/ai";
 import {
   deleteMobileAccount,
+  exchangeMobileOAuthCode,
   loginWithEmailPassword,
   logoutMobileSession,
   refreshMobileTokens,
@@ -83,6 +85,7 @@ type ViewMode =
   | "calendar"
   | "account";
 type AuthViewMode = "landing" | "login";
+type MobileOAuthProvider = "google" | "github";
 type AutoSaveStatus = "unsaved" | "saving" | "saved" | "error";
 type StatusFilter = "all" | "mine" | "shared" | "published" | "private";
 type SortMode = "updated-desc" | "created-desc" | "title-asc";
@@ -173,6 +176,10 @@ const mainTabs: { label: string; value: MainTab }[] = [
 ];
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
+const MOBILE_OAUTH_CALLBACK_URL =
+  process.env.EXPO_PUBLIC_MOBILE_OAUTH_CALLBACK_URL ?? "mymemo://auth/callback";
+
+WebBrowser.maybeCompleteAuthSession();
 
 const dateFormatter = new Intl.DateTimeFormat("ja-JP", {
   dateStyle: "medium",
@@ -2642,6 +2649,8 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
+  const [oauthLoadingProvider, setOauthLoadingProvider] =
+    useState<MobileOAuthProvider | null>(null);
   const [loginError, setLoginError] = useState("");
   const [posts, setPosts] = useState<MobilePost[]>([]);
   const [query, setQuery] = useState("");
@@ -2696,6 +2705,7 @@ export default function App() {
     selectedPost?.accessRole === "owner" || selectedPost?.accessRole === "editor";
   const selectedPostCanDelete = selectedPost?.accessRole === "owner";
   const selectedPostCanManageShares = selectedPost?.accessRole === "owner";
+  const handledOAuthCodesRef = useRef(new Set<string>());
 
   const clearSession = useCallback(async (nextLoginError = "") => {
     await deleteStoredAuthTokens();
@@ -3008,6 +3018,134 @@ export default function App() {
       setLoginLoading(false);
     }
   }, [email, password]);
+
+  const completeOAuthLogin = useCallback(
+    async (code: string) => {
+      if (handledOAuthCodesRef.current.has(code)) {
+        return;
+      }
+
+      handledOAuthCodesRef.current.add(code);
+      setLoginLoading(true);
+      setLoginError("");
+
+      try {
+        const result = await exchangeMobileOAuthCode(code);
+        await saveAuthTokens(result);
+        setAccessToken(result.accessToken);
+        setRefreshToken(result.refreshToken);
+        setAuthViewMode("landing");
+        setPassword("");
+      } catch (caughtError) {
+        setLoginError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "OAuthログインに失敗しました。",
+        );
+      } finally {
+        setLoginLoading(false);
+        setOauthLoadingProvider(null);
+      }
+    },
+    [],
+  );
+
+  const handleOAuthCallbackUrl = useCallback(
+    (callbackUrl: string) => {
+      let parsedUrl: URL;
+
+      try {
+        parsedUrl = new URL(callbackUrl);
+      } catch {
+        setLoginError("OAuthログインの戻りURLを読み取れませんでした。");
+        return;
+      }
+
+      const isAuthCallback =
+        (parsedUrl.protocol === "mymemo:" ||
+          parsedUrl.protocol === "my-memo:") &&
+        parsedUrl.hostname === "auth" &&
+        parsedUrl.pathname === "/callback";
+
+      if (!isAuthCallback) {
+        return;
+      }
+
+      const errorCode = parsedUrl.searchParams.get("error");
+      if (errorCode) {
+        setLoginError("OAuthログインを完了できませんでした。もう一度お試しください。");
+        setOauthLoadingProvider(null);
+        setLoginLoading(false);
+        return;
+      }
+
+      const code = parsedUrl.searchParams.get("code");
+      if (!code) {
+        setLoginError("OAuthログインコードが見つかりませんでした。");
+        setOauthLoadingProvider(null);
+        setLoginLoading(false);
+        return;
+      }
+
+      void completeOAuthLogin(code);
+    },
+    [completeOAuthLogin],
+  );
+
+  const handleOAuthLogin = useCallback(
+    async (provider: MobileOAuthProvider) => {
+      if (!API_BASE_URL) {
+        setLoginError("EXPO_PUBLIC_API_BASE_URL が設定されていません。");
+        return;
+      }
+
+      setOauthLoadingProvider(provider);
+      setLoginError("");
+
+      try {
+        const startUrl = new URL("/api/mobile/oauth/start", API_BASE_URL);
+        startUrl.searchParams.set("provider", provider);
+
+        const result = await WebBrowser.openAuthSessionAsync(
+          startUrl.toString(),
+          MOBILE_OAUTH_CALLBACK_URL,
+        );
+
+        if (result.type === "success") {
+          handleOAuthCallbackUrl(result.url);
+        } else if (result.type === "cancel" || result.type === "dismiss") {
+          setOauthLoadingProvider(null);
+        } else {
+          setLoginError("OAuthログインを開始できませんでした。");
+          setOauthLoadingProvider(null);
+        }
+      } catch (caughtError) {
+        setLoginError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "OAuthログインを開始できませんでした。",
+        );
+        setOauthLoadingProvider(null);
+      }
+    },
+    [handleOAuthCallbackUrl],
+  );
+
+  useEffect(() => {
+    const subscription = Linking.addEventListener("url", ({ url }) => {
+      handleOAuthCallbackUrl(url);
+    });
+
+    void Linking.getInitialURL().then((url) => {
+      if (url) {
+        handleOAuthCallbackUrl(url);
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [handleOAuthCallbackUrl]);
 
   const handleRefresh = useCallback(() => {
     if (!accessToken) {
@@ -4317,12 +4455,39 @@ export default function App() {
               ) : null}
 
               <Button
-                loading={loginLoading}
+                disabled={oauthLoadingProvider !== null}
+                loading={loginLoading && oauthLoadingProvider === null}
                 onPress={handleLogin}
                 style={styles.fullButton}
               >
                 メールアドレスでログイン
               </Button>
+
+              <View style={styles.oauthSection}>
+                <View style={styles.oauthDivider} />
+                <Button
+                  disabled={loginLoading || oauthLoadingProvider === "github"}
+                  loading={oauthLoadingProvider === "google"}
+                  onPress={() => {
+                    void handleOAuthLogin("google");
+                  }}
+                  style={styles.fullButton}
+                  variant="secondary"
+                >
+                  Googleで続ける
+                </Button>
+                <Button
+                  disabled={loginLoading || oauthLoadingProvider === "google"}
+                  loading={oauthLoadingProvider === "github"}
+                  onPress={() => {
+                    void handleOAuthLogin("github");
+                  }}
+                  style={styles.fullButton}
+                  variant="secondary"
+                >
+                  GitHubで続ける
+                </Button>
+              </View>
             </Card>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -5325,6 +5490,15 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 14,
     padding: 10,
+  },
+  oauthDivider: {
+    backgroundColor: colors.border,
+    height: 1,
+    width: "100%",
+  },
+  oauthSection: {
+    gap: 12,
+    marginTop: 16,
   },
   formError: {
     backgroundColor: colors.dangerSoft,

@@ -4,11 +4,13 @@ import { createHash } from "node:crypto";
 import {
   AI_USER_RATE_LIMIT,
   CREDENTIALS_LOGIN_EMAIL_IP_RATE_LIMIT,
+  MOBILE_OAUTH_EXCHANGE_CODE_RATE_LIMIT,
   MOBILE_REFRESH_TOKEN_RATE_LIMIT,
   resetAllRateLimits,
 } from "@/lib/rate-limit";
 
 const authMock = vi.hoisted(() => vi.fn());
+const isOAuthProviderConfiguredMock = vi.hoisted(() => vi.fn());
 const bcryptCompareMock = vi.hoisted(() => vi.fn());
 const generateAiResultMock = vi.hoisted(() => vi.fn());
 const prismaMock = vi.hoisted(() => ({
@@ -25,6 +27,12 @@ const prismaMock = vi.hoisted(() => ({
     update: vi.fn(),
     updateMany: vi.fn(),
   },
+  mobileOAuthCode: {
+    create: vi.fn(),
+    deleteMany: vi.fn(),
+    findUnique: vi.fn(),
+    updateMany: vi.fn(),
+  },
   user: {
     findUnique: vi.fn(),
   },
@@ -32,6 +40,7 @@ const prismaMock = vi.hoisted(() => ({
 
 vi.mock("@/auth", () => ({
   auth: authMock,
+  isOAuthProviderConfigured: isOAuthProviderConfiguredMock,
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -68,13 +77,201 @@ function hashRefreshToken(refreshToken: string) {
   return createHash("sha256").update(refreshToken).digest("hex");
 }
 
+function hashOAuthCode(code: string) {
+  return createHash("sha256").update(code).digest("hex");
+}
+
 describe("mobile auth API", () => {
   beforeEach(() => {
     process.env.AUTH_SECRET = "test-secret-for-mobile-auth-route-tests";
     process.env.MOBILE_AUTH_SECRET = "test-mobile-secret-for-mobile-auth-route-tests";
+    process.env.MOBILE_OAUTH_CALLBACK_URL = "mymemo://auth/callback";
     authMock.mockResolvedValue(null);
+    isOAuthProviderConfiguredMock.mockReturnValue(true);
     resetAllRateLimits();
     vi.clearAllMocks();
+  });
+
+  it("returns 400 for an invalid mobile OAuth provider", async () => {
+    const { GET } = await import("@/app/api/mobile/oauth/start/route");
+
+    const response = await GET(
+      new Request("http://localhost:3000/api/mobile/oauth/start?provider=bad"),
+    );
+
+    expect(response.status).toBe(400);
+    expect(isOAuthProviderConfiguredMock).not.toHaveBeenCalled();
+  });
+
+  it("stores mobile OAuth one-time codes as hashes", async () => {
+    const { createMobileOAuthCode } = await import("@/lib/mobile-oauth");
+
+    prismaMock.mobileOAuthCode.deleteMany.mockResolvedValue({ count: 0 });
+    prismaMock.mobileOAuthCode.create.mockResolvedValue({});
+
+    const code = await createMobileOAuthCode("user-1", "Vitest Mobile");
+    const createCall = prismaMock.mobileOAuthCode.create.mock.calls[0]?.[0];
+
+    expect(code).toEqual(expect.any(String));
+    expect(createCall.data.userId).toBe("user-1");
+    expect(createCall.data.codeHash).toBe(hashOAuthCode(code));
+    expect(createCall.data.codeHash).not.toBe(code);
+    expect(createCall.data.expiresAt).toBeInstanceOf(Date);
+    expect(createCall.data.userAgent).toBe("Vitest Mobile");
+  });
+
+  it("exchanges a valid mobile OAuth code for mobile tokens", async () => {
+    const { POST } = await import("@/app/api/mobile/oauth/exchange/route");
+    const code = "a".repeat(43);
+
+    prismaMock.mobileOAuthCode.findUnique.mockResolvedValue({
+      expiresAt: new Date(Date.now() + 60_000),
+      usedAt: null,
+      user: {
+        email: "user@example.com",
+        id: "user-1",
+        name: "User",
+      },
+      userId: "user-1",
+    });
+    prismaMock.mobileOAuthCode.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.apiSession.create.mockResolvedValue({ id: "api-session-1" });
+
+    const response = await POST(
+      createJsonRequest("/api/mobile/oauth/exchange", { code }),
+    );
+    const data = (await response.json()) as {
+      accessToken?: string;
+      refreshToken?: string;
+    };
+    const lookupCall = prismaMock.mobileOAuthCode.findUnique.mock.calls[0]?.[0];
+
+    expect(response.status).toBe(200);
+    expect(data.accessToken).toEqual(expect.any(String));
+    expect(data.refreshToken).toEqual(expect.any(String));
+    expect(lookupCall.where.codeHash).toBe(hashOAuthCode(code));
+    expect(lookupCall.where.codeHash).not.toBe(code);
+    expect(prismaMock.mobileOAuthCode.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { usedAt: expect.any(Date) },
+        where: expect.objectContaining({
+          codeHash: hashOAuthCode(code),
+          usedAt: null,
+        }),
+      }),
+    );
+    expect(prismaMock.apiSession.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: "user-1",
+          userAgent: "Vitest Mobile",
+        }),
+      }),
+    );
+  });
+
+  it("does not reuse a used mobile OAuth code", async () => {
+    const { POST } = await import("@/app/api/mobile/oauth/exchange/route");
+    const code = "b".repeat(43);
+
+    prismaMock.mobileOAuthCode.findUnique.mockResolvedValue({
+      expiresAt: new Date(Date.now() + 60_000),
+      usedAt: new Date(),
+      user: {
+        email: "user@example.com",
+        id: "user-1",
+        name: "User",
+      },
+      userId: "user-1",
+    });
+
+    const response = await POST(
+      createJsonRequest("/api/mobile/oauth/exchange", { code }),
+    );
+    const text = await response.text();
+
+    expect(response.status).toBe(401);
+    expect(text).not.toContain(code);
+    expect(prismaMock.mobileOAuthCode.updateMany).not.toHaveBeenCalled();
+    expect(prismaMock.apiSession.create).not.toHaveBeenCalled();
+  });
+
+  it("does not exchange an expired mobile OAuth code", async () => {
+    const { POST } = await import("@/app/api/mobile/oauth/exchange/route");
+    const code = "c".repeat(43);
+
+    prismaMock.mobileOAuthCode.findUnique.mockResolvedValue({
+      expiresAt: new Date(Date.now() - 60_000),
+      usedAt: null,
+      user: {
+        email: "user@example.com",
+        id: "user-1",
+        name: "User",
+      },
+      userId: "user-1",
+    });
+
+    const response = await POST(
+      createJsonRequest("/api/mobile/oauth/exchange", { code }),
+    );
+    const text = await response.text();
+
+    expect(response.status).toBe(401);
+    expect(text).not.toContain(code);
+    expect(prismaMock.mobileOAuthCode.updateMany).not.toHaveBeenCalled();
+    expect(prismaMock.apiSession.create).not.toHaveBeenCalled();
+  });
+
+  it("does not exchange a mobile OAuth code claimed by another request", async () => {
+    const { POST } = await import("@/app/api/mobile/oauth/exchange/route");
+    const code = "d".repeat(43);
+
+    prismaMock.mobileOAuthCode.findUnique.mockResolvedValue({
+      expiresAt: new Date(Date.now() + 60_000),
+      usedAt: null,
+      user: {
+        email: "user@example.com",
+        id: "user-1",
+        name: "User",
+      },
+      userId: "user-1",
+    });
+    prismaMock.mobileOAuthCode.updateMany.mockResolvedValue({ count: 0 });
+
+    const response = await POST(
+      createJsonRequest("/api/mobile/oauth/exchange", { code }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(prismaMock.apiSession.create).not.toHaveBeenCalled();
+  });
+
+  it("returns 429 after repeated mobile OAuth exchange attempts for the same code", async () => {
+    const { POST } = await import("@/app/api/mobile/oauth/exchange/route");
+    const code = "e".repeat(43);
+
+    prismaMock.mobileOAuthCode.findUnique.mockResolvedValue(null);
+
+    for (
+      let index = 0;
+      index < MOBILE_OAUTH_EXCHANGE_CODE_RATE_LIMIT.max;
+      index += 1
+    ) {
+      const response = await POST(
+        createJsonRequest("/api/mobile/oauth/exchange", { code }),
+      );
+
+      expect(response.status).toBe(401);
+    }
+
+    const response = await POST(
+      createJsonRequest("/api/mobile/oauth/exchange", { code }),
+    );
+    const text = await response.text();
+
+    expect(response.status).toBe(429);
+    expect(text).toContain("試行回数が多すぎます");
+    expect(text).not.toContain(code);
   });
 
   it("login returns accessToken and refreshToken without storing the refresh token plaintext", async () => {

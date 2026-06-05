@@ -44,6 +44,16 @@ export const MOBILE_REFRESH_TOKEN_RATE_LIMIT = {
   windowMs: 15 * 60 * 1000,
 } satisfies RateLimitConfig;
 
+export const MOBILE_OAUTH_EXCHANGE_IP_RATE_LIMIT = {
+  max: 30,
+  windowMs: 5 * 60 * 1000,
+} satisfies RateLimitConfig;
+
+export const MOBILE_OAUTH_EXCHANGE_CODE_RATE_LIMIT = {
+  max: 5,
+  windowMs: 5 * 60 * 1000,
+} satisfies RateLimitConfig;
+
 export const AI_USER_RATE_LIMIT = {
   max: 10,
   windowMs: 60 * 1000,
