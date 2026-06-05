@@ -22,6 +22,7 @@ export type MobileApiResponse = {
 
 export type MobileListOptions = {
   limit?: number;
+  q?: string;
 };
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -154,6 +155,11 @@ export function buildListQuery(options?: MobileListOptions) {
 
   if (options?.limit) {
     params.set("limit", String(options.limit));
+  }
+
+  const query = options?.q?.trim();
+  if (query) {
+    params.set("q", query);
   }
 
   const queryString = params.toString();

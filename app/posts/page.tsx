@@ -6,6 +6,7 @@ import {
   getPostAccessRole,
   getSharedPostsWhere,
 } from "@/lib/post-permissions";
+import { resolvePostSearchQuery, withPostSearchWhere } from "@/lib/post-search";
 import { prisma } from "@/lib/prisma";
 import {
   createMemoPreview,
@@ -37,6 +38,7 @@ type PostsPageProps = {
   searchParams?: Promise<{
     filter?: string | string[];
     limit?: string | string[];
+    q?: string | string[];
     sort?: string | string[];
   }>;
 };
@@ -224,6 +226,7 @@ export default async function PostsPage({ searchParams }: PostsPageProps) {
   const resolvedSearchParams = await searchParams;
   const selectedFilter = resolvePostsFilter(resolvedSearchParams?.filter);
   const selectedSort = resolvePostsSort(resolvedSearchParams?.sort);
+  const selectedQuery = resolvePostSearchQuery(resolvedSearchParams?.q);
   const selectedLimit = resolveListLimit(
     resolvedSearchParams?.limit,
     MEMO_LIST_PAGE_SIZE,
@@ -236,7 +239,10 @@ export default async function PostsPage({ searchParams }: PostsPageProps) {
   let hasMorePosts = false;
 
   try {
-    const selectedWhere = getPostsWhere(selectedFilter, userId);
+    const selectedWhere = withPostSearchWhere(
+      getPostsWhere(selectedFilter, userId),
+      selectedQuery,
+    );
     const nextPosts = await prisma.post.findMany({
       where: selectedWhere,
       select: getMemoListPostSelect(userId),
@@ -261,7 +267,12 @@ export default async function PostsPage({ searchParams }: PostsPageProps) {
     logServerError(error, {
       action: "loadPostsPage",
       userId,
-      details: { filter: selectedFilter, limit: selectedLimit, sort: selectedSort },
+      details: {
+        filter: selectedFilter,
+        limit: selectedLimit,
+        query: selectedQuery,
+        sort: selectedSort,
+      },
     });
     throw new Error("メモの取得に失敗しました。");
   }
@@ -269,14 +280,6 @@ export default async function PostsPage({ searchParams }: PostsPageProps) {
   const memoPosts: MemoCardPost[] = posts.map((post) => {
     const accessRole = getPostAccessRole(post, userId);
     const preview = createMemoPreview(post.content);
-    const searchText = [
-      post.title,
-      post.content,
-      ...post.tags.map((tag) => tag.name),
-      ...post.todoItems.map((todoItem) => todoItem.text),
-    ]
-      .join("\n")
-      .toLowerCase();
 
     return {
       id: post.id,
@@ -290,7 +293,6 @@ export default async function PostsPage({ searchParams }: PostsPageProps) {
       authorId: post.authorId,
       createdAt: post.createdAt.toISOString(),
       updatedAt: post.updatedAt.toISOString(),
-      searchText,
       tags: post.tags.map((tag) => ({ id: tag.id, name: tag.name })),
       todoItems: post.todoItems.map((todoItem) => ({
         completed: todoItem.completed,
@@ -311,8 +313,10 @@ export default async function PostsPage({ searchParams }: PostsPageProps) {
         deletePostAction={deletePost}
         filteredPostsCount={filteredPostsCount}
         hasMorePosts={hasMorePosts}
+        key={`${selectedFilter}:${selectedSort}:${selectedQuery}`}
         nextLimit={getNextListLimit(selectedLimit, MEMO_LIST_PAGE_SIZE, MEMO_LIST_MAX_LIMIT)}
         posts={memoPosts}
+        selectedQuery={selectedQuery}
         selectedFilter={selectedFilter}
         selectedLimit={selectedLimit}
         selectedSort={selectedSort}

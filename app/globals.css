@@ -400,6 +400,23 @@ textarea {
   gap: 7px;
 }
 
+.posts-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.posts-search button {
+  min-height: 44px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--text);
+  color: #ffffff;
+  padding: 0 16px;
+  font-weight: 900;
+}
+
 .posts-controls label > span {
   color: var(--text-soft);
   font-size: 0.78rem;
@@ -449,6 +466,23 @@ textarea {
 .posts-view-toggle button[aria-pressed="true"] {
   background: var(--text);
   color: #ffffff;
+}
+
+.posts-active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -8px 0 18px;
+}
+
+.posts-active-filters span {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-soft);
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 850;
 }
 
 .posts-empty-state {
