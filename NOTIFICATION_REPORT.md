@@ -28,3 +28,45 @@
 - Bearer token、refresh token、Push Token、DB URL、secretはレスポンスやログに出さない方針を維持しています。
 - mobileには `EXPO_PUBLIC_` 以外のsecretを置きません。
 - Cron認証はheader方式のみです。
+
+## 2026-06-05 通知一覧・既読管理UX改善
+
+### 追加内容
+
+- Webヘッダーに `/notifications` への通知リンクを追加し、ログイン中ユーザーの未読件数バッジを表示するようにしました。
+- Web版 `/notifications` ページを追加し、`title`, `body`, `createdAt`, 未読/既読状態、空状態、「すべて既読にする」を表示しました。
+- Web通知クリック時は `/api/notifications/[id]/read` で既読化してから、関連メモがある場合は `/posts/[postId]` に遷移します。
+- mobile版に通知タブとメモ一覧ヘッダーの通知ボタンを追加し、未読件数、通知一覧、pull-to-refresh、再読み込み、「すべて既読にする」を追加しました。
+- mobile通知タップ時は `/api/mobile/notifications/[id]/read` で既読化してから、関連メモ詳細へ遷移します。
+- 通知取得・未読数・単体既読・全既読処理を `lib/notifications.ts` に整理し、Web APIとmobile APIで共通利用するようにしました。
+- Web APIとして `/api/notifications`, `/api/notifications/[id]/read`, `/api/notifications/read-all` を追加しました。
+- mobile APIとして既存 `/api/mobile/notifications` を活かしつつ、`/api/mobile/notifications/[id]/read`, `/api/mobile/notifications/read-all` を追加しました。
+- `notificationIdValueSchema` を追加し、通知IDパラメータをZodで検証します。
+- `Notification` テーブル既存カラムで実装できたため、新規migrationは追加していません。
+
+### セキュリティ・認可
+
+- 通知一覧、未読数、単体既読、全既読はすべてログイン中ユーザーの `userId` を条件にしています。
+- 単体既読は `id` だけでは更新せず、`where: { id, userId }` の `updateMany` で更新します。他人の通知IDを指定しても更新されません。
+- 未ログイン時は通知APIを401で拒否します。
+- 既存のmobile auth、OAuth、PushSubscription、共有通知作成、Todo通知処理は変更範囲を分けて維持しています。
+
+### 確認済み項目
+
+- `npm run test`: 19 files / 125 tests passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `npm run test:e2e`: 初回はsandbox内の `0.0.0.0:3000` listen権限で失敗、権限付き再実行で5 tests passed.
+- `npm audit --audit-level=high`: 初回はネットワーク制限で失敗、権限付き再実行で `found 0 vulnerabilities`.
+- `mobile && npm install`: up to date.
+- `mobile && npx expo-doctor`: 初回はネットワーク制限で失敗、権限付き再実行で18/18 checks passed.
+- `mobile && npm run typecheck`: passed.
+- 追加unit testで、通知一覧取得、未読件数取得、自分の通知の既読化、他人通知の既読化拒否、全既読、未ログイン拒否、通知クリック先URL生成を確認しました。
+- 既存unit testで、共有通知作成、Todo通知、mobile OAuth、メールログイン関連が引き続き通ることを確認しました。
+
+### EAS Build枠回復後に確認する項目
+
+- iOS/Android実機でPush通知受信からアプリ内通知一覧の未読件数が期待通りに更新されること。
+- Push通知タップから該当メモ詳細へ遷移できること。
+- アプリ起動中、バックグラウンド、終了状態それぞれで通知タップ後の既読化が期待通り動くこと。
+- Expo Push Token登録、revoke、再ログイン後の再登録が実機で維持されること。

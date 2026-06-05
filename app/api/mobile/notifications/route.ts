@@ -7,7 +7,7 @@ import { getMobileAuthUser } from "@/lib/mobile-auth";
 import { mobileError, mobileJson } from "@/lib/mobile-api-response";
 import { mobileCorsOptions } from "@/lib/mobile-cors";
 import { serializeMobileNotification } from "@/lib/mobile-notifications";
-import { prisma } from "@/lib/prisma";
+import { listNotificationsForUser } from "@/lib/notifications";
 import { logServerError } from "@/lib/server-errors";
 
 export function OPTIONS(request: Request) {
@@ -30,17 +30,15 @@ export async function GET(request: Request) {
   const unreadOnly = url.searchParams.get("unread") === "true";
 
   try {
-    const notifications = await prisma.notification.findMany({
-      where: {
-        userId: authUser.id,
-        ...(unreadOnly ? { readAt: null } : {}),
-      },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: limit,
+    const { notifications, unreadCount } = await listNotificationsForUser({
+      limit,
+      unreadOnly,
+      userId: authUser.id,
     });
 
     return mobileJson(request, {
       notifications: notifications.map(serializeMobileNotification),
+      unreadCount,
     });
   } catch (error) {
     logServerError(error, {

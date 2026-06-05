@@ -1,9 +1,19 @@
 import { auth, signOut } from "@/auth";
+import { getUnreadNotificationCount } from "@/lib/notifications";
 import { isRedirectError, logServerError } from "@/lib/server-errors";
 import Link from "next/link";
 
 export default async function Navbar() {
   const session = await auth();
+  const unreadNotificationCount = session?.user?.id
+    ? await getUnreadNotificationCount(session.user.id).catch((error) => {
+        logServerError(error, {
+          action: "navbarUnreadNotificationCount",
+          userId: session.user?.id,
+        });
+        return 0;
+      })
+    : 0;
 
   return (
     <header className="site-header">
@@ -20,6 +30,15 @@ export default async function Navbar() {
               <Link href="/todos">Todo一覧</Link>
               <Link href="/todos/calendar">カレンダー</Link>
               <Link href="/posts?filter=shared">共有メモ</Link>
+              <Link href="/notifications" className="nav-notification-link">
+                <span aria-hidden="true">通知</span>
+                <span className="sr-only">通知一覧</span>
+                {unreadNotificationCount > 0 ? (
+                  <span className="nav-notification-badge">
+                    {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
+                  </span>
+                ) : null}
+              </Link>
               <Link href="/posts/new">新規作成</Link>
               <Link href="/account">アカウント</Link>
               <div className="nav-account">

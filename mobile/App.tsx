@@ -31,6 +31,11 @@ import {
   sendMobileTestPush,
 } from "./src/api/push-subscriptions";
 import {
+  fetchMobileNotifications,
+  markAllMobileNotificationsRead,
+  markMobileNotificationRead,
+} from "./src/api/notifications";
+import {
   createMobilePostShare,
   createMobilePost,
   createMobileTodoItem,
@@ -66,6 +71,7 @@ import type { EditorLine } from "./src/todo-utils";
 import type {
   MobileAiMode,
   MobileCrossMemoTodoItem,
+  MobileNotification,
   MobilePost,
   MobilePostPayload,
   MobilePostShare,
@@ -81,6 +87,7 @@ type ViewMode =
   | "create-todo"
   | "edit"
   | "share"
+  | "notifications"
   | "todos"
   | "calendar"
   | "account";
@@ -98,11 +105,12 @@ type TodoFilter =
   | "week"
   | "overdue"
   | "noDue";
-type MainTab = "list" | "todos" | "calendar" | "account";
+type MainTab = "list" | "notifications" | "todos" | "calendar" | "account";
 type CalendarQuickFilter = "today" | "tomorrow" | "week" | "overdue";
 
 const AUTO_SAVE_DEBOUNCE_MS = 1500;
 const MOBILE_MEMO_INITIAL_LIMIT = 30;
+const MOBILE_NOTIFICATION_INITIAL_LIMIT = 60;
 const MOBILE_TODO_INITIAL_LIMIT = 100;
 const MOBILE_CALENDAR_INITIAL_LIMIT = 180;
 const DUE_TODO_MEMO_PAYLOAD: MobilePostPayload = {
@@ -170,6 +178,7 @@ const calendarQuickFilters: { label: string; value: CalendarQuickFilter }[] = [
 
 const mainTabs: { label: string; value: MainTab }[] = [
   { label: "メモ", value: "list" },
+  { label: "通知", value: "notifications" },
   { label: "Todo", value: "todos" },
   { label: "カレンダー", value: "calendar" },
   { label: "アカウント", value: "account" },
@@ -786,6 +795,50 @@ function MainTabBar({
         </Pressable>
       ))}
     </View>
+  );
+}
+
+function NotificationRow({
+  disabled,
+  notification,
+  onPress,
+}: {
+  disabled?: boolean;
+  notification: MobileNotification;
+  onPress: () => void;
+}) {
+  const unread = !notification.readAt;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.notificationRow,
+        unread ? styles.notificationRowUnread : undefined,
+        pressed ? styles.buttonPressed : undefined,
+        disabled ? styles.disabledControl : undefined,
+      ]}
+    >
+      <View style={styles.notificationTitleRow}>
+        <Text style={styles.notificationTitle} numberOfLines={2}>
+          {notification.title}
+        </Text>
+        <Badge variant={unread ? "public" : "default"}>
+          {unread ? "未読" : "既読"}
+        </Badge>
+      </View>
+      {notification.body ? (
+        <Text style={styles.notificationBody} numberOfLines={3}>
+          {notification.body}
+        </Text>
+      ) : null}
+      <Text style={styles.notificationMeta}>
+        {formatUpdatedAt(notification.createdAt)}
+        {notification.postId ? " / 関連メモへ" : ""}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -2688,6 +2741,12 @@ export default function App() {
   const [allTodosLoading, setAllTodosLoading] = useState(false);
   const [allTodosRefreshing, setAllTodosRefreshing] = useState(false);
   const [allTodosError, setAllTodosError] = useState("");
+  const [notifications, setNotifications] = useState<MobileNotification[]>([]);
+  const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationsRefreshing, setNotificationsRefreshing] = useState(false);
+  const [notificationsError, setNotificationsError] = useState("");
+  const [notificationsSaving, setNotificationsSaving] = useState(false);
   const [todoFilter, setTodoFilter] = useState<TodoFilter>("all");
   const [calendarTodos, setCalendarTodos] = useState<MobileCrossMemoTodoItem[]>([]);
   const [calendarLoading, setCalendarLoading] = useState(false);
@@ -2736,6 +2795,9 @@ export default function App() {
     setTodoError("");
     setAllTodos([]);
     setAllTodosError("");
+    setNotifications([]);
+    setNotificationUnreadCount(0);
+    setNotificationsError("");
     setTodoFilter("all");
     setCalendarTodos([]);
     setCalendarError("");
@@ -2928,6 +2990,42 @@ export default function App() {
     [handleAuthError, withAuthRetry],
   );
 
+  const loadNotifications = useCallback(
+    async (nextRefreshing = false) => {
+      if (nextRefreshing) {
+        setNotificationsRefreshing(true);
+      } else {
+        setNotificationsLoading(true);
+      }
+
+      setNotificationsError("");
+
+      try {
+        const result = await withAuthRetry((token) =>
+          fetchMobileNotifications(token, {
+            limit: MOBILE_NOTIFICATION_INITIAL_LIMIT,
+          }),
+        );
+        setNotifications(result.notifications);
+        setNotificationUnreadCount(result.unreadCount);
+      } catch (caughtError) {
+        if (await handleAuthError(caughtError)) {
+          return;
+        }
+
+        setNotificationsError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "通知一覧の取得に失敗しました。",
+        );
+      } finally {
+        setNotificationsLoading(false);
+        setNotificationsRefreshing(false);
+      }
+    },
+    [handleAuthError, withAuthRetry],
+  );
+
   useEffect(() => {
     let active = true;
 
@@ -2964,7 +3062,8 @@ export default function App() {
     }
 
     loadPosts();
-  }, [accessToken, loadPosts]);
+    void loadNotifications();
+  }, [accessToken, loadNotifications, loadPosts]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -2989,6 +3088,14 @@ export default function App() {
 
     void loadCalendarTodos();
   }, [accessToken, loadCalendarTodos, viewMode]);
+
+  useEffect(() => {
+    if (!accessToken || viewMode !== "notifications") {
+      return;
+    }
+
+    void loadNotifications();
+  }, [accessToken, loadNotifications, viewMode]);
 
   const handleLogin = useCallback(async () => {
     const nextEmail = email.trim();
@@ -3360,6 +3467,96 @@ export default function App() {
     },
     [accessToken, handleAuthError, openPostDetail, posts, withAuthRetry],
   );
+
+  const openNotification = useCallback(
+    async (notification: MobileNotification) => {
+      if (!accessToken) {
+        setLoginError("ログインが必要です。");
+        return;
+      }
+
+      const wasUnread = !notification.readAt;
+
+      setNotifications((currentNotifications) =>
+        currentNotifications.map((currentNotification) =>
+          currentNotification.id === notification.id && !currentNotification.readAt
+            ? { ...currentNotification, readAt: new Date().toISOString() }
+            : currentNotification,
+        ),
+      );
+      if (wasUnread) {
+        setNotificationUnreadCount((current) => Math.max(0, current - 1));
+      }
+      setNotificationsSaving(true);
+      setNotificationsError("");
+
+      try {
+        await withAuthRetry((token) =>
+          markMobileNotificationRead(token, notification.id),
+        );
+
+        if (notification.postId) {
+          await openPostDetailById(notification.postId);
+        }
+      } catch (caughtError) {
+        if (await handleAuthError(caughtError)) {
+          return;
+        }
+
+        setNotificationsError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "通知の既読化に失敗しました。",
+        );
+        void loadNotifications(true);
+      } finally {
+        setNotificationsSaving(false);
+      }
+    },
+    [
+      accessToken,
+      handleAuthError,
+      loadNotifications,
+      openPostDetailById,
+      withAuthRetry,
+    ],
+  );
+
+  const handleMarkAllNotificationsRead = useCallback(async () => {
+    if (!accessToken) {
+      setLoginError("ログインが必要です。");
+      return;
+    }
+
+    setNotifications((currentNotifications) =>
+      currentNotifications.map((notification) =>
+        notification.readAt
+          ? notification
+          : { ...notification, readAt: new Date().toISOString() },
+      ),
+    );
+    setNotificationUnreadCount(0);
+    setNotificationsSaving(true);
+    setNotificationsError("");
+
+    try {
+      await withAuthRetry((token) => markAllMobileNotificationsRead(token));
+      void loadNotifications(true);
+    } catch (caughtError) {
+      if (await handleAuthError(caughtError)) {
+        return;
+      }
+
+      setNotificationsError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "通知の既読化に失敗しました。",
+      );
+      void loadNotifications(true);
+    } finally {
+      setNotificationsSaving(false);
+    }
+  }, [accessToken, handleAuthError, loadNotifications, withAuthRetry]);
 
   const handleCreate = useCallback(() => {
     setSelectedPost(null);
@@ -4685,6 +4882,91 @@ export default function App() {
     );
   }
 
+  if (viewMode === "notifications") {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" />
+        <View style={styles.screen}>
+          <View style={styles.compactHeader}>
+            <View>
+              <Text style={styles.kicker}>Notifications</Text>
+              <Text style={styles.title}>通知</Text>
+              <Text style={styles.postsSummary}>
+                未読 {notificationUnreadCount}件 / 表示中 {notifications.length}件
+              </Text>
+            </View>
+          </View>
+
+          <Card style={[styles.notificationsActionPanel, styles.flatSurface]}>
+            <Button
+              disabled={notificationUnreadCount === 0 || notificationsSaving}
+              loading={notificationsSaving}
+              onPress={() => {
+                void handleMarkAllNotificationsRead();
+              }}
+              style={styles.notificationActionButton}
+              variant="secondary"
+            >
+              すべて既読にする
+            </Button>
+            <Button
+              disabled={notificationsRefreshing || notificationsSaving}
+              onPress={() => loadNotifications(true)}
+              style={styles.notificationActionButton}
+              variant="secondary"
+            >
+              再読み込み
+            </Button>
+          </Card>
+
+          {notificationsLoading ? (
+            <View style={styles.centerState}>
+              <ActivityIndicator color="#2563eb" size="large" />
+              <Text style={styles.stateText}>通知を読み込んでいます</Text>
+            </View>
+          ) : notificationsError ? (
+            <View style={styles.centerState}>
+              <Text style={styles.errorTitle}>取得できませんでした</Text>
+              <Text style={styles.errorText}>{notificationsError}</Text>
+              <Button
+                onPress={() => loadNotifications()}
+                style={styles.retryButton}
+                variant="secondary"
+              >
+                再試行
+              </Button>
+            </View>
+          ) : notifications.length === 0 ? (
+            <View style={styles.centerState}>
+              <Text style={styles.emptyTitle}>通知はありません</Text>
+              <Text style={styles.emptyText}>
+                共有やTodo通知が届くとここに表示されます。
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              contentContainerStyle={styles.notificationListContent}
+              data={notifications}
+              keyExtractor={(item) => item.id}
+              onRefresh={() => loadNotifications(true)}
+              refreshing={notificationsRefreshing}
+              renderItem={({ item }) => (
+                <NotificationRow
+                  disabled={notificationsSaving}
+                  notification={item}
+                  onPress={() => {
+                    void openNotification(item);
+                  }}
+                />
+              )}
+            />
+          )}
+        </View>
+        <MainTabBar activeTab="notifications" onNavigate={navigateMainTab} />
+      </SafeAreaView>
+    );
+  }
+
   if (viewMode === "todos") {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -5106,9 +5388,18 @@ export default function App() {
             <Text style={styles.kicker}>Memo workspace</Text>
             <View style={styles.listTitleRow}>
               <Text style={styles.title}>メモ一覧</Text>
-              <Button onPress={handleCreate} style={styles.createMemoButton}>
-                新規作成
-              </Button>
+              <View style={styles.listHeaderActions}>
+                <Button
+                  onPress={() => setViewMode("notifications")}
+                  style={styles.notificationHeaderButton}
+                  variant="secondary"
+                >
+                  通知 {notificationUnreadCount > 0 ? notificationUnreadCount : ""}
+                </Button>
+                <Button onPress={handleCreate} style={styles.createMemoButton}>
+                  新規作成
+                </Button>
+              </View>
             </View>
             <Text style={styles.postsSummary}>
               表示中 {posts.length}件 / 自分 {postSummaryCounts.myMemo}件 / 共有 {postSummaryCounts.shared}件 / 公開 {postSummaryCounts.published}件 / 非公開 {postSummaryCounts.private}件
@@ -5316,9 +5607,9 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     borderTopWidth: 1,
     flexDirection: "row",
-    gap: 6,
+    gap: 4,
     paddingBottom: Platform.OS === "ios" ? 18 : 10,
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     paddingTop: 10,
   },
   mainTabButton: {
@@ -5329,6 +5620,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     minHeight: 44,
+    paddingHorizontal: 2,
   },
   mainTabButtonActive: {
     backgroundColor: colors.text,
@@ -5336,7 +5628,7 @@ const styles = StyleSheet.create({
   },
   mainTabText: {
     color: colors.textMuted,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "900",
   },
   mainTabTextActive: {
@@ -5530,6 +5822,18 @@ const styles = StyleSheet.create({
     gap: 10,
     justifyContent: "space-between",
     marginTop: 2,
+  },
+  listHeaderActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 0,
+    gap: 8,
+  },
+  notificationHeaderButton: {
+    minHeight: 38,
+    minWidth: 76,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   createMemoButton: {
     minHeight: 38,
@@ -5859,6 +6163,60 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: 32,
+  },
+  notificationsActionPanel: {
+    backgroundColor: "rgba(255, 255, 255, 0.72)",
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 12,
+    padding: 10,
+  },
+  notificationActionButton: {
+    flex: 1,
+  },
+  notificationListContent: {
+    gap: 10,
+    paddingBottom: 110,
+  },
+  notificationRow: {
+    backgroundColor: colors.surfaceStrong,
+    borderColor: colors.border,
+    borderLeftColor: colors.border,
+    borderLeftWidth: 4,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: 8,
+    padding: 14,
+  },
+  notificationRowUnread: {
+    backgroundColor: "rgba(219, 234, 254, 0.72)",
+    borderColor: "rgba(37, 99, 235, 0.22)",
+    borderLeftColor: colors.primary,
+  },
+  notificationTitleRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
+  },
+  notificationTitle: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "900",
+    lineHeight: 22,
+  },
+  notificationBody: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 22,
+  },
+  notificationMeta: {
+    color: colors.textSoft,
+    fontSize: 12,
+    fontWeight: "900",
+    lineHeight: 18,
   },
   todoListContent: {
     gap: 12,
