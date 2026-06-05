@@ -18,6 +18,7 @@ model User {
   accounts          Account[]
   sessions          Session[]
   apiSessions       ApiSession[]
+  mobileOAuthCodes  MobileOAuthCode[]
   posts             Post[]
   postShares        PostShare[]
   pushSubscriptions PushSubscription[]
@@ -203,6 +204,21 @@ model ApiSession {
   @@index([tokenFamilyId, revokedAt])
   @@index([expiresAt])
   @@index([revokedAt])
+}
+
+model MobileOAuthCode {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String    @unique @db.Text
+  expiresAt DateTime
+  usedAt    DateTime?
+  userAgent String?   @db.Text
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([usedAt])
 }
 
 model VerificationToken {

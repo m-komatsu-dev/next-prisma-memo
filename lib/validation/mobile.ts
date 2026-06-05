@@ -29,6 +29,15 @@ export const mobileRevokePushSubscriptionSchema = z.object({
     .optional(),
 });
 
+export const mobileOAuthExchangeSchema = z.object({
+  code: z
+    .string({ error: "codeの形式が正しくありません。" })
+    .trim()
+    .min(32, "codeの形式が正しくありません。")
+    .max(256, "codeの形式が正しくありません。")
+    .regex(/^[A-Za-z0-9_-]+$/, "codeの形式が正しくありません。"),
+});
+
 export const mobileAddPostShareSchema = z.object({
   email: z
     .string({ error: "メールアドレスの形式が正しくありません。" })

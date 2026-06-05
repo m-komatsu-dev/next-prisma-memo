@@ -104,6 +104,34 @@ export async function refreshMobileTokens(refreshToken: string) {
   return data;
 }
 
+export async function exchangeMobileOAuthCode(code: string) {
+  const response = await fetch(`${getApiBaseUrl()}/api/mobile/oauth/exchange`, {
+    body: JSON.stringify({ code }),
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+
+  const data = (await response.json()) as unknown;
+
+  if (!response.ok) {
+    throw new MobileApiRequestError(
+      isMobileApiErrorResponse(data)
+        ? data.error
+        : "OAuthログインに失敗しました。",
+      response.status,
+    );
+  }
+
+  if (!isMobileTokenResponse(data)) {
+    throw new Error("OAuthログインレスポンスの形式が正しくありません。");
+  }
+
+  return data;
+}
+
 export async function logoutMobileSession(refreshToken: string) {
   const response = await fetch(`${getApiBaseUrl()}/api/mobile/auth/logout`, {
     body: JSON.stringify({ refreshToken }),
