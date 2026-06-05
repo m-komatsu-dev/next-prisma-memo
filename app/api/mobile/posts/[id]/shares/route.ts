@@ -3,6 +3,7 @@ import {
   mobilePostShareSelect,
   serializeMobilePostShare,
 } from "@/lib/mobile-post-shares";
+import { ensurePostShareNotification } from "@/lib/notifications";
 import { mobileCorsOptions, withMobileCors } from "@/lib/mobile-cors";
 import { prisma } from "@/lib/prisma";
 import { logServerError } from "@/lib/server-errors";
@@ -188,20 +189,26 @@ export async function POST(request: Request, { params }: MobilePostSharesRouteCo
       );
     }
 
-    const share = await prisma.postShare.upsert({
-      where: {
-        postId_userId: {
+    const share = await prisma.$transaction(async (tx) => {
+      const nextShare = await tx.postShare.upsert({
+        where: {
+          postId_userId: {
+            postId,
+            userId: targetUser.id,
+          },
+        },
+        create: {
           postId,
+          role,
           userId: targetUser.id,
         },
-      },
-      create: {
-        postId,
-        role,
-        userId: targetUser.id,
-      },
-      update: { role },
-      select: mobilePostShareSelect,
+        update: { role },
+        select: mobilePostShareSelect,
+      });
+
+      await ensurePostShareNotification(nextShare.id, authUser.id, tx);
+
+      return nextShare;
     });
 
     return withMobileCors(

@@ -3,6 +3,7 @@
 import { auth } from "@/auth";
 import { getEditablePostWhere } from "@/lib/post-permissions";
 import { prisma } from "@/lib/prisma";
+import { resolveTodoReminderAt } from "@/lib/todo-reminder-schedule";
 import { serializeTodoItem } from "@/lib/todo-item-response";
 import {
   getFirstZodErrorMessage,
@@ -98,7 +99,7 @@ export async function createTodoItem(
           postId: post.id,
           text: payload.text,
           dueAt: payload.dueAt,
-          reminderAt: payload.reminderAt,
+          reminderAt: resolveTodoReminderAt(payload.dueAt, payload.reminderAt),
           position: (lastTodo?.position ?? -1) + 1,
         },
       });
@@ -129,6 +130,7 @@ export async function updateTodoItem(
   }
 
   const payload = validatedFields.data;
+  const reminderAt = resolveTodoReminderAt(payload.dueAt, payload.reminderAt);
 
   try {
     await assertEditablePost(payload.id, userId);
@@ -141,9 +143,8 @@ export async function updateTodoItem(
       data: {
         text: payload.text,
         dueAt: payload.dueAt,
-        ...(payload.reminderAt !== undefined
-          ? { reminderAt: payload.reminderAt, reminderSentAt: null }
-          : {}),
+        reminderAt,
+        reminderSentAt: null,
       },
     });
 

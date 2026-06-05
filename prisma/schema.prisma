@@ -21,6 +21,8 @@ model User {
   posts             Post[]
   postShares        PostShare[]
   pushSubscriptions PushSubscription[]
+  notifications     Notification[]     @relation("NotificationRecipient")
+  sentNotifications Notification[]     @relation("NotificationActor")
 
   createdAt DateTime @default(now()) // ← 監査ログ
   updatedAt DateTime @updatedAt
@@ -37,11 +39,12 @@ model Post {
   authorId String
   author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  tags      Tag[]
-  shares    PostShare[]
-  todoItems TodoItem[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  tags          Tag[]
+  shares        PostShare[]
+  todoItems     TodoItem[]
+  notifications Notification[]
 
   @@index([authorId]) // ← パフォーマンス + DoS耐性
   @@index([authorId, updatedAt])
@@ -93,19 +96,45 @@ enum PostShareRole {
 }
 
 model PostShare {
-  id        Int           @id @default(autoincrement())
-  postId    Int
-  post      Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role      PostShareRole @default(viewer)
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
+  id            Int            @id @default(autoincrement())
+  postId        Int
+  post          Post           @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role          PostShareRole  @default(viewer)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  notifications Notification[]
 
   @@unique([postId, userId])
   @@index([postId])
   @@index([userId])
   @@index([userId, role])
+}
+
+model Notification {
+  id          String     @id @default(cuid())
+  userId      String
+  user        User       @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  actorId     String?
+  actor       User?      @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  type        String
+  title       String
+  body        String?
+  postId      Int?
+  post        Post?      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postShareId Int?
+  postShare   PostShare? @relation(fields: [postShareId], references: [id], onDelete: Cascade)
+  readAt      DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@unique([postShareId, type])
+  @@index([userId])
+  @@index([userId, readAt, createdAt])
+  @@index([userId, createdAt])
+  @@index([postId])
+  @@index([postShareId])
 }
 
 model Tag {

@@ -1,6 +1,7 @@
 "use server";
 
 import { auth } from "@/auth";
+import { ensurePostShareNotification } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import { getPublicErrorMessage, logServerError } from "@/lib/server-errors";
 import {
@@ -51,6 +52,7 @@ export async function addPostShare(
   if (!session?.user?.id) {
     return getShareActionError("ログインが必要です。");
   }
+  const userId = session.user.id;
 
   const validatedFields = addPostShareFormSchema.safeParse(
     Object.fromEntries(formData.entries()),
@@ -64,7 +66,7 @@ export async function addPostShare(
 
   try {
     const [post, targetUser] = await Promise.all([
-      getOwnedPost(postId, session.user.id),
+      getOwnedPost(postId, userId),
       prisma.user.findUnique({
         where: { email },
         select: { id: true, email: true },
@@ -83,21 +85,26 @@ export async function addPostShare(
       return getShareActionError("自分自身には共有できません。");
     }
 
-    await prisma.postShare.upsert({
-      where: {
-        postId_userId: {
+    await prisma.$transaction(async (tx) => {
+      const share = await tx.postShare.upsert({
+        where: {
+          postId_userId: {
+            postId,
+            userId: targetUser.id,
+          },
+        },
+        create: {
           postId,
+          role,
           userId: targetUser.id,
         },
-      },
-      create: {
-        postId,
-        role,
-        userId: targetUser.id,
-      },
-      update: {
-        role,
-      },
+        update: {
+          role,
+        },
+        select: { id: true },
+      });
+
+      await ensurePostShareNotification(share.id, userId, tx);
     });
 
     revalidatePostSharePaths(postId);
@@ -105,7 +112,7 @@ export async function addPostShare(
   } catch (error) {
     logServerError(error, {
       action: "addPostShare",
-      userId: session.user.id,
+      userId,
       postId,
       details: { email },
     });
@@ -122,6 +129,7 @@ export async function updatePostShare(
   if (!session?.user?.id) {
     return getShareActionError("ログインが必要です。");
   }
+  const userId = session.user.id;
 
   const validatedFields = updatePostShareFormSchema.safeParse(
     Object.fromEntries(formData.entries()),
@@ -134,18 +142,26 @@ export async function updatePostShare(
   const { id: postId, role, shareId } = validatedFields.data;
 
   try {
-    const result = await prisma.postShare.updateMany({
-      where: {
-        id: shareId,
-        postId,
-        post: {
-          authorId: session.user.id,
+    const result = await prisma.$transaction(async (tx) => {
+      const updateResult = await tx.postShare.updateMany({
+        where: {
+          id: shareId,
+          postId,
+          post: {
+            authorId: userId,
+          },
+          userId: {
+            not: userId,
+          },
         },
-        userId: {
-          not: session.user.id,
-        },
-      },
-      data: { role },
+        data: { role },
+      });
+
+      if (updateResult.count > 0) {
+        await ensurePostShareNotification(shareId, userId, tx);
+      }
+
+      return updateResult;
     });
 
     if (result.count === 0) {
@@ -157,7 +173,7 @@ export async function updatePostShare(
   } catch (error) {
     logServerError(error, {
       action: "updatePostShare",
-      userId: session.user.id,
+      userId,
       postId,
       details: { shareId },
     });

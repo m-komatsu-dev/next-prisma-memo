@@ -4,6 +4,7 @@ import { mobileCorsOptions } from "@/lib/mobile-cors";
 import { getEditablePostWhere } from "@/lib/post-permissions";
 import { prisma } from "@/lib/prisma";
 import { logServerError } from "@/lib/server-errors";
+import { resolveTodoReminderAt } from "@/lib/todo-reminder-schedule";
 import { serializeTodoItem } from "@/lib/todo-item-response";
 import {
   getFirstZodErrorMessage,
@@ -70,9 +71,16 @@ export async function PATCH(request: Request, { params }: MobileTodoItemRouteCon
   }
 
   const payload = validatedFields.data;
+  const reminderAt =
+    payload.dueAt !== undefined
+      ? resolveTodoReminderAt(payload.dueAt, payload.reminderAt)
+      : payload.reminderAt;
   const updateData = {
     ...payload,
-    ...(payload.reminderAt !== undefined ? { reminderSentAt: null } : {}),
+    ...(reminderAt !== undefined ? { reminderAt } : {}),
+    ...(payload.dueAt !== undefined || payload.reminderAt !== undefined
+      ? { reminderSentAt: null }
+      : {}),
   };
 
   try {
