@@ -14,7 +14,7 @@
 - 自分のメモと共有されたメモを一覧表示
 - owner / editor / viewerの権限に応じて操作を制御
 - Gemini APIはモバイル側から直接呼ばず、Next.js API経由で実行
-- Expo Goでの確認を想定
+- Expo GoとEAS Build内部配布での確認を想定
 
 ## 起動方法
 
@@ -73,28 +73,28 @@ Expo Goや実機からMac上のNext.js開発サーバーへ接続する場合は
 EXPO_PUBLIC_API_BASE_URL=http://192.168.x.x:3000
 ```
 
-本番Vercel環境へ接続する場合:
+Preview / 本番Vercel環境へ接続する場合:
 
 ```env
-EXPO_PUBLIC_API_BASE_URL=https://todo-text-memo.vercel.app
+EXPO_PUBLIC_API_BASE_URL=https://next-prisma-memo.vercel.app
 ```
 
 `.env` を変更したあとは、Expo開発サーバーを再起動してください。`mobile/.env` はローカル接続先を含むため、コミットしないでください。
 
-EAS Buildでは、`preview` / `production` profileの `EXPO_PUBLIC_API_BASE_URL` は `eas.json` に設定しています。現在の内部配布ビルドは本番Vercel APIへ接続します。
+EAS Buildでは、`development` / `preview` / `production` profileの `EXPO_PUBLIC_API_BASE_URL` は `eas.json` に設定しています。現在の内部配布ビルドは本番Vercel APIへ接続します。
 
 ```env
-EXPO_PUBLIC_API_BASE_URL=https://todo-text-memo.vercel.app
+EXPO_PUBLIC_API_BASE_URL=https://next-prisma-memo.vercel.app
 ```
 
-`EXPO_PUBLIC_` で始まる値はアプリに埋め込まれる公開値です。APIキーやトークンなどの秘密情報は `EXPO_PUBLIC_` にせず、Expo DashboardのEnvironment variablesまたはEAS CLIでSecret / Sensitiveとして登録してください。
+`EXPO_PUBLIC_` で始まる値はアプリに埋め込まれる公開値です。Gemini API key、`DATABASE_URL`、`AUTH_SECRET`、`MOBILE_AUTH_SECRET`、refresh tokenなどの秘密情報はモバイル側へ置かず、Next.js APIまたはサーバー側の環境変数だけで管理してください。
 
 Expo Dashboard側で環境ごとに管理する運用へ寄せる場合は、`eas.json` の `env` を削除してから次のように登録します。
 
 ```bash
-npx eas-cli env:create --name EXPO_PUBLIC_API_BASE_URL --value https://todo-text-memo.vercel.app --environment development --visibility plaintext
-npx eas-cli env:create --name EXPO_PUBLIC_API_BASE_URL --value https://todo-text-memo.vercel.app --environment preview --visibility plaintext
-npx eas-cli env:create --name EXPO_PUBLIC_API_BASE_URL --value https://todo-text-memo.vercel.app --environment production --visibility plaintext
+npx eas-cli env:create --name EXPO_PUBLIC_API_BASE_URL --value https://next-prisma-memo.vercel.app --environment development --visibility plaintext
+npx eas-cli env:create --name EXPO_PUBLIC_API_BASE_URL --value https://next-prisma-memo.vercel.app --environment preview --visibility plaintext
+npx eas-cli env:create --name EXPO_PUBLIC_API_BASE_URL --value https://next-prisma-memo.vercel.app --environment production --visibility plaintext
 ```
 
 ローカル開発でEAS側の環境変数を使う場合:
@@ -117,15 +117,23 @@ npx eas-cli env:pull --environment development
 
 ## EAS Build / 内部配布
 
-Expo Goなしでスマホへインストールする内部配布ビルドはEAS Buildを使います。`preview` profileは `distribution: "internal"` にしており、Androidは直接インストールしやすいAPKを生成します。
+Expo Goなしでスマホへインストールする内部配布ビルドはEAS Buildを使います。Expoの内部配布ではBuild URLからテスター端末へ直接インストールできます。`preview` profileは `distribution: "internal"` にしており、Androidは直接インストールしやすいAPKを生成します。
+
+EAS CLIのインストール:
+
+```bash
+npm install --global eas-cli
+```
+
+グローバルインストールを避ける場合は、各コマンドを `npx eas-cli@latest ...` で実行できます。
 
 初回セットアップ:
 
 ```bash
 cd mobile
 npm install
-npx eas-cli login
-npx eas-cli build:configure
+eas login
+eas build:configure
 ```
 
 `build:configure` 実行時にExpo project IDが `app.json` へ追加される場合があります。Expoアカウントにログインした状態で、生成された差分を確認してください。
@@ -135,28 +143,42 @@ npx eas-cli build:configure
 ```bash
 cd mobile
 npm run typecheck
-npx eas-cli build --platform android --profile preview
+eas build --platform android --profile preview
 ```
+
+このコマンドはExpoのクラウドビルドを開始し、Expoアカウント、署名情報、ネットワーク接続を使います。実行前に `mobile/eas.json` の `preview.env.EXPO_PUBLIC_API_BASE_URL` が接続したいNext.js APIを指していることを確認してください。
 
 iOSの内部配布ビルド:
 
 ```bash
 cd mobile
-npx eas-cli device:create
-npx eas-cli build --platform ios --profile preview
+eas device:create
+eas build --platform ios --profile preview
 ```
 
 iOSの内部配布はApple Developer Programと実機UDIDの登録が必要です。まずAndroidで確認し、iOSはテスター端末を登録してから実行してください。
 
-ビルド完了後、EAS CLIまたはExpo Dashboardに表示されるBuild URLをスマホで開きます。AndroidはAPKをダウンロードしてインストールします。iOSは登録済み端末でBuild URLを開き、案内に従ってIPAをインストールします。
+ビルド完了後、EAS CLIまたはExpo Dashboardに表示されるBuild URLをスマホで開きます。AndroidはAPKをダウンロードしてインストールします。初回はAndroid側で「不明なアプリのインストール」を許可する必要があります。iOSは登録済み端末でBuild URLを開き、案内に従ってIPAをインストールします。
 
 EAS Build profile:
 
 | Profile | 用途 | 配布 | API URL |
 | --- | --- | --- | --- |
-| `development` | 開発用EASビルド | internal | `https://todo-text-memo.vercel.app` |
-| `preview` | 内部配布テスト | internal / Android APK | `https://todo-text-memo.vercel.app` |
-| `production` | 将来のストア提出向け | store | `https://todo-text-memo.vercel.app` |
+| `development` | 開発確認用の内部配布ビルド | internal / Android APK | `https://next-prisma-memo.vercel.app` |
+| `preview` | Android実機テスター向け内部配布 | internal / Android APK | `https://next-prisma-memo.vercel.app` |
+| `production` | 将来のストア提出向け | store / Android AAB | `https://next-prisma-memo.vercel.app` |
+
+よくあるエラーと対処:
+
+| エラー / 症状 | 対処 |
+| --- | --- |
+| `EXPO_PUBLIC_API_BASE_URL が設定されていません。` | `mobile/.env` または `mobile/eas.json` の該当profileに `EXPO_PUBLIC_API_BASE_URL` を設定し、Expoを再起動します。 |
+| 実機で `localhost` に接続できない | `localhost` はスマホ自身を指します。Expo Goのローカル確認では `http://<PCのLAN IP>:3000` を使います。EAS previewでは公開済みAPI URLを使います。 |
+| 401が返る / ログイン状態が戻る | access token期限切れ時はrefresh token rotationで再発行します。refresh失敗時はSecureStoreの保存トークンを削除して再ログインしてください。 |
+| APKを開けない | Android端末の設定で、ダウンロード元ブラウザからの不明なアプリのインストールを許可します。 |
+| `eas: command not found` | `npm install --global eas-cli` を実行するか、`npx eas-cli@latest build --platform android --profile preview` を使います。 |
+| `Project not configured` | `cd mobile && eas build:configure` を実行し、`app.json` の `extra.eas.projectId` と `eas.json` を確認します。 |
+| Expoアカウントやcredentialsで止まる | `eas login` 後に再実行します。Android keystoreはEASに自動生成・管理させる運用で問題ありません。 |
 
 ## モバイル版の機能
 
@@ -228,7 +250,7 @@ Authorization: Bearer <accessToken>
 - access tokenは15分、refresh tokenは30日
 - 公開メモ全体の閲覧はWeb版中心で、モバイルAPIは自分のメモと共有メモを返す設計
 - TodoItemはAPIと型のみ対応中。モバイル版の専用画面は未対応で、画面操作はWeb版優先
-- ストア配布は未対応。EAS Buildの内部配布のみ設定済み
+- ストア配布は未運用。EAS BuildのAndroid内部配布のみ設定済み
 - カレンダー、リマインダー、画像添付は未実装
 - モバイル版の単体テストとE2Eテストは未整備
 
@@ -249,7 +271,7 @@ npm run typecheck
 | トークン保存 | NextAuth管理 | Expo SecureStore |
 | 公開メモ | 公開メモも閲覧対象 | 自分のメモと共有メモが中心 |
 | AI機能 | 編集画面・詳細画面 | AI Assistantパネル |
-| 配布 | Vercel | Expo Goでの確認を想定 |
+| 配布 | Vercel | Expo Go / EAS Build内部配布 |
 
 ## 注意
 
