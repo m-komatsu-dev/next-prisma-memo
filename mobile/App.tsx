@@ -2765,6 +2765,7 @@ export default function App() {
   const selectedPostCanDelete = selectedPost?.accessRole === "owner";
   const selectedPostCanManageShares = selectedPost?.accessRole === "owner";
   const handledOAuthCodesRef = useRef(new Set<string>());
+  const queryRef = useRef(query);
 
   const clearSession = useCallback(async (nextLoginError = "") => {
     await deleteStoredAuthTokens();
@@ -2886,7 +2887,7 @@ export default function App() {
   }, [accessToken, withAuthRetry]);
 
   const loadPosts = useCallback(
-    async (nextRefreshing = false) => {
+    async (nextRefreshing = false, nextQuery = queryRef.current) => {
       if (nextRefreshing) {
         setRefreshing(true);
       } else {
@@ -2898,7 +2899,10 @@ export default function App() {
 
       try {
         const nextPosts = await withAuthRetry((token) =>
-          fetchMobilePosts(token, { limit: MOBILE_MEMO_INITIAL_LIMIT }),
+          fetchMobilePosts(token, {
+            limit: MOBILE_MEMO_INITIAL_LIMIT,
+            q: nextQuery,
+          }),
         );
         setPosts(nextPosts);
       } catch (caughtError) {
@@ -3055,6 +3059,10 @@ export default function App() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    queryRef.current = query;
+  }, [query]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -4560,6 +4568,10 @@ export default function App() {
     "すべて";
   const selectedSortLabel =
     sortOptions.find((option) => option.value === sortMode)?.label ?? "更新日";
+  const isMemoSearchOrFilterActive =
+    query.trim().length > 0 ||
+    selectedFilter !== "all" ||
+    sortMode !== "updated-desc";
   if (restoringToken) {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -5413,11 +5425,23 @@ export default function App() {
               autoCapitalize="none"
               autoCorrect={false}
               onChangeText={setQuery}
-              placeholder="タイトル、本文、タグで検索"
+              onSubmitEditing={() => loadPosts(false, query)}
+              placeholder="タイトル、本文、タグ、Todoで検索"
               placeholderTextColor="#a0a8b5"
+              returnKeyType="search"
               style={styles.searchInputCompact}
               value={query}
             />
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => loadPosts(false, query)}
+              style={({ pressed }) => [
+                styles.searchActionButton,
+                pressed ? styles.buttonPressed : undefined,
+              ]}
+            >
+              <Text style={styles.searchActionButtonText}>検索</Text>
+            </Pressable>
             <Pressable
               accessibilityRole="button"
               onPress={() => setFiltersOpen((current) => !current)}
@@ -5433,8 +5457,17 @@ export default function App() {
           </View>
 
           <View style={styles.activeFilterRow}>
+            {loading && query.trim() ? (
+              <Text style={styles.activeFilterChip}>検索中...</Text>
+            ) : null}
+            {query.trim() ? (
+              <Text style={styles.activeFilterChip}>検索: {query.trim()}</Text>
+            ) : null}
             <Text style={styles.activeFilterChip}>表示: {selectedFilterLabel}</Text>
             <Text style={styles.activeFilterChip}>並び替え: {selectedSortLabel}</Text>
+            {isMemoSearchOrFilterActive ? (
+              <Text style={styles.activeFilterChip}>絞り込み中</Text>
+            ) : null}
           </View>
 
           {filtersOpen ? (
@@ -5527,7 +5560,7 @@ export default function App() {
               再試行
             </Button>
           </View>
-        ) : posts.length === 0 ? (
+        ) : posts.length === 0 && !isMemoSearchOrFilterActive ? (
           <View style={styles.centerState}>
             <Text style={styles.emptyTitle}>メモはまだありません</Text>
             <Text style={styles.emptyText}>
@@ -5538,7 +5571,7 @@ export default function App() {
           <View style={styles.centerState}>
             <Text style={styles.emptyTitle}>該当するメモが見つかりませんでした</Text>
             <Text style={styles.emptyText}>
-              検索キーワードや公開ステータスを変えると、別のメモが見つかるかもしれません。
+              タイトル・本文・タグ・Todo項目を検索しましたが、一致するメモはありませんでした。
             </Text>
             <Button
               onPress={() => {
@@ -5546,6 +5579,7 @@ export default function App() {
                 setSelectedFilter("all");
                 setSortMode("updated-desc");
                 setFiltersOpen(false);
+                void loadPosts(false, "");
               }}
               style={styles.retryButton}
               variant="secondary"
@@ -5877,6 +5911,19 @@ const styles = StyleSheet.create({
     fontSize: 15,
     minHeight: 42,
     paddingHorizontal: 12,
+  },
+  searchActionButton: {
+    alignItems: "center",
+    backgroundColor: colors.text,
+    borderRadius: radius.md,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: 12,
+  },
+  searchActionButtonText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: "900",
   },
   filterToggle: {
     alignItems: "center",

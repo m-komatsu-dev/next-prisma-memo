@@ -3,7 +3,13 @@
 import { TodoListPreview } from "@/components/todo-list";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, type ReactNode, useDeferredValue, useMemo, useState } from "react";
+import {
+  FormEvent,
+  type ReactNode,
+  useMemo,
+  useState,
+  useTransition,
+} from "react";
 
 export type MemoCardPost = {
   accessRole: "owner" | "editor" | "viewer" | "public";
@@ -17,7 +23,6 @@ export type MemoCardPost = {
   authorId: string;
   createdAt: string;
   updatedAt: string;
-  searchText: string;
   tags: { id: number; name: string }[];
   todoItems: {
     completed: boolean;
@@ -43,6 +48,7 @@ type PostsListClientProps = {
   nextLimit: number;
   selectedFilter: StatusFilter;
   selectedLimit: number;
+  selectedQuery: string;
   selectedSort: SortMode;
   userName: string;
   deletePostAction: ServerAction;
@@ -172,6 +178,7 @@ export default function PostsListClient({
   nextLimit,
   selectedFilter,
   selectedLimit,
+  selectedQuery,
   selectedSort,
   userName,
   deletePostAction,
@@ -180,42 +187,51 @@ export default function PostsListClient({
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [query, setQuery] = useState("");
-  const deferredQuery = useDeferredValue(query);
+  const [query, setQuery] = useState(selectedQuery);
+  const [isPending, startTransition] = useTransition();
   const [viewMode, setViewMode] = useState<ViewMode>("cards");
 
-  function updateStatusFilter(filter: StatusFilter) {
+  function updateListParams({
+    filter = selectedFilter,
+    limit,
+    q = selectedQuery,
+    sort = selectedSort,
+  }: {
+    filter?: StatusFilter;
+    limit?: number;
+    q?: string;
+    sort?: SortMode;
+  }) {
     const params = new URLSearchParams(searchParams.toString());
+
     params.set("filter", filter);
-    params.delete("limit");
-    router.push(`${pathname}?${params.toString()}`);
+    params.set("sort", sort);
+
+    const normalizedQuery = q.trim();
+    if (normalizedQuery) {
+      params.set("q", normalizedQuery);
+    } else {
+      params.delete("q");
+    }
+
+    if (limit) {
+      params.set("limit", String(limit));
+    } else {
+      params.delete("limit");
+    }
+
+    startTransition(() => {
+      router.push(`${pathname}?${params.toString()}`);
+    });
+  }
+
+  function updateStatusFilter(filter: StatusFilter) {
+    updateListParams({ filter });
   }
 
   function updateSortMode(sortMode: SortMode) {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("sort", sortMode);
-    params.delete("limit");
-    router.push(`${pathname}?${params.toString()}`);
+    updateListParams({ sort: sortMode });
   }
-
-  const filteredPosts = useMemo(() => {
-    const normalizedQuery = deferredQuery.trim().toLowerCase();
-
-    return posts.filter((post) => {
-      const matchesQuery =
-        normalizedQuery.length === 0 || post.searchText.includes(normalizedQuery);
-
-      const matchesStatus =
-        selectedFilter === "all" ||
-        (selectedFilter === "published" && post.published) ||
-        (selectedFilter === "private" && !post.published && post.authorId === currentUserId) ||
-        (selectedFilter === "mine" && post.authorId === currentUserId) ||
-        (selectedFilter === "shared" &&
-          (post.accessRole === "viewer" || post.accessRole === "editor"));
-
-      return matchesQuery && matchesStatus;
-    });
-  }, [currentUserId, deferredQuery, posts, selectedFilter]);
 
   const counts = useMemo(
     () => ({
@@ -226,6 +242,19 @@ export default function PostsListClient({
     }),
     [currentUserId, posts],
   );
+  const isFiltering =
+    selectedQuery.length > 0 ||
+    selectedFilter !== "all" ||
+    selectedSort !== "updated-desc";
+  const loadMoreParams = new URLSearchParams({
+    filter: selectedFilter,
+    limit: String(nextLimit),
+    sort: selectedSort,
+  });
+
+  if (selectedQuery) {
+    loadMoreParams.set("q", selectedQuery);
+  }
 
   function confirmDelete(event: FormEvent<HTMLFormElement>) {
     if (!window.confirm("本当にこのメモを削除してもよろしいですか？")) {
@@ -266,15 +295,24 @@ export default function PostsListClient({
       ) : (
         <>
           <section className="posts-controls" aria-label="メモの検索と絞り込み">
-            <label className="posts-search">
+            <form
+              className="posts-search"
+              onSubmit={(event) => {
+                event.preventDefault();
+                updateListParams({ q: query });
+              }}
+            >
+              <label>
               <span>検索</span>
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="タイトル、本文、タグで検索"
+                placeholder="タイトル、本文、タグ、Todoで検索"
                 type="search"
               />
-            </label>
+              </label>
+              <button type="submit">検索</button>
+            </form>
 
             <label>
               <span>表示</span>
@@ -314,15 +352,25 @@ export default function PostsListClient({
             </div>
           </section>
 
-          {filteredPosts.length === 0 ? (
+          <div className="posts-active-filters" aria-live="polite">
+            {isPending ? <span>検索中...</span> : null}
+            {isFiltering ? <span>絞り込み中</span> : <span>すべて表示</span>}
+            {selectedQuery ? <span>検索: {selectedQuery}</span> : null}
+            {selectedFilter !== "all" ? <span>表示: {selectedFilter}</span> : null}
+            {selectedSort !== "updated-desc" ? <span>並び替え変更中</span> : null}
+          </div>
+
+          {posts.length === 0 ? (
             <section className="posts-empty-state posts-empty-state--compact">
               <h2>該当するメモが見つかりませんでした</h2>
-              <p>検索キーワードや公開ステータスを変えると、別のメモが見つかるかもしれません。</p>
+              <p>
+                タイトル・本文・タグ・Todo項目を検索しましたが、一致するメモはありませんでした。
+              </p>
               <button
                 className="posts-secondary-action"
                 onClick={() => {
                   setQuery("");
-                  updateStatusFilter("all");
+                  updateListParams({ filter: "all", q: "", sort: "updated-desc" });
                 }}
                 type="button"
               >
@@ -331,7 +379,7 @@ export default function PostsListClient({
             </section>
           ) : (
             <section className={viewMode === "cards" ? "memo-grid" : "memo-list"} aria-live="polite">
-              {filteredPosts.map((post) => {
+              {posts.map((post) => {
                 const isAuthor = post.accessRole === "owner";
                 const canEdit = post.accessRole === "owner" || post.accessRole === "editor";
 
@@ -351,12 +399,12 @@ export default function PostsListClient({
                       </div>
 
                       <h2>
-                        <Link href={`/posts/${post.id}`}>{highlightText(post.title, query)}</Link>
+                        <Link href={`/posts/${post.id}`}>{highlightText(post.title, selectedQuery)}</Link>
                       </h2>
 
                       {isTodoListPost(post) ? (
                         <TodoItemsPreview
-                          query={query}
+                          query={selectedQuery}
                           todoItems={post.todoItems}
                           todoItemsCount={post.todoItemsCount}
                         />
@@ -364,7 +412,7 @@ export default function PostsListClient({
                         <MemoContentPreview
                           content={post.content}
                           isTruncated={post.contentTruncated}
-                          query={query}
+                          query={selectedQuery}
                         />
                       )}
 
@@ -379,7 +427,10 @@ export default function PostsListClient({
                           {post.tags.map((tag) => (
                             <button
                               key={tag.id}
-                              onClick={() => setQuery(tag.name)}
+                              onClick={() => {
+                                setQuery(tag.name);
+                                updateListParams({ q: tag.name });
+                              }}
                               type="button"
                             >
                               #{tag.name}
@@ -428,11 +479,11 @@ export default function PostsListClient({
               })}
             </section>
           )}
-          {hasMorePosts && filteredPosts.length > 0 && (
+          {hasMorePosts && posts.length > 0 && (
             <div className="posts-pagination">
               <Link
                 className="posts-secondary-action"
-                href={`/posts?filter=${selectedFilter}&sort=${selectedSort}&limit=${nextLimit}`}
+                href={`/posts?${loadMoreParams.toString()}`}
               >
                 もっと見る
               </Link>

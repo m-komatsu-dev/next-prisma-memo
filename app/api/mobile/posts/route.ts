@@ -10,6 +10,7 @@ import {
 } from "@/lib/list-query";
 import { getMemoListPostSelect, getPostDetailSelect } from "@/lib/post-selects";
 import { getMobileAccessiblePostsWhere } from "@/lib/post-permissions";
+import { resolvePostSearchQuery, withPostSearchWhere } from "@/lib/post-search";
 import { prisma } from "@/lib/prisma";
 import { logServerError } from "@/lib/server-errors";
 import {
@@ -39,8 +40,9 @@ export async function GET(request: Request) {
       MOBILE_MEMO_LIST_LIMIT,
       MEMO_LIST_MAX_LIMIT,
     );
+    const query = resolvePostSearchQuery(searchParams.get("q"));
     const posts = await prisma.post.findMany({
-      where: getMobileAccessiblePostsWhere(authUser.id),
+      where: withPostSearchWhere(getMobileAccessiblePostsWhere(authUser.id), query),
       select: getMemoListPostSelect(authUser.id),
       orderBy: { updatedAt: "desc" },
       take: limit,
