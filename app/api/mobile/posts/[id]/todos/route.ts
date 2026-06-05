@@ -7,6 +7,7 @@ import {
 } from "@/lib/post-permissions";
 import { prisma } from "@/lib/prisma";
 import { logServerError } from "@/lib/server-errors";
+import { resolveTodoReminderAt } from "@/lib/todo-reminder-schedule";
 import { serializeTodoItem } from "@/lib/todo-item-response";
 import {
   getFirstZodErrorMessage,
@@ -118,7 +119,7 @@ export async function POST(request: Request, { params }: MobileTodoItemsRouteCon
       return tx.todoItem.create({
         data: {
           dueAt: payload.dueAt,
-          reminderAt: payload.reminderAt,
+          reminderAt: resolveTodoReminderAt(payload.dueAt, payload.reminderAt),
           position: (lastTodo?.position ?? -1) + 1,
           postId: post.id,
           text: payload.text,

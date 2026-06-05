@@ -6,6 +6,7 @@ type NotificationsModule = typeof import("expo-notifications");
 type PushRegistrationResult =
   | { registered: true; token: string }
   | {
+      message?: string;
       registered: false;
       reason: "expo-go" | "permission-denied" | "registration-failed";
     };
@@ -56,6 +57,19 @@ async function configureAndroidChannel(Notifications: NotificationsModule) {
   }
 }
 
+function getSafePushRegistrationErrorMessage(error: unknown) {
+  if (!(error instanceof Error) || !error.message.trim()) {
+    return "Push Tokenの登録に失敗しました。";
+  }
+
+  return error.message
+    .replace(/ExponentPushToken\[[^\]]+\]/g, "ExponentPushToken[redacted]")
+    .replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [redacted]")
+    .replace(/postgres(?:ql)?:\/\/[^\s"'<>]+/gi, "[redacted]")
+    .replace(/(?:AUTH|MOBILE_AUTH|EXPO|CRON|DATABASE)[A-Z0-9_]*\s*=\s*["']?[^"'\s]+/gi, "[redacted]")
+    .slice(0, 180);
+}
+
 export async function registerPushTokenAfterLogin(
   accessToken: string,
 ): Promise<PushRegistrationResult> {
@@ -90,7 +104,9 @@ export async function registerPushTokenAfterLogin(
     });
 
     return { registered: true, token: tokenResult.data };
-  } catch {
-    return { registered: false, reason: "registration-failed" };
+  } catch (error) {
+    const message = getSafePushRegistrationErrorMessage(error);
+    console.warn(`Push notification registration failed: ${message}`);
+    return { message, registered: false, reason: "registration-failed" };
   }
 }

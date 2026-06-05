@@ -193,6 +193,8 @@ EAS Build profile:
 - タグ表示
 - Todo形式メモの表示・編集
 - TodoItemはAPIと型のみ対応中。普通のTodoは `dueAt: null`、期限付きTodoは日時ありで扱います
+- ログイン後のExpo Push Token登録とTodoリマインダー通知
+- 共有通知の一覧API
 - メモ本文のコピー
 - 共有されたメモの一覧・詳細表示
 - 共有メモのviewer / editorバッジ表示
@@ -239,6 +241,10 @@ Authorization: Bearer <accessToken>
 | `POST` | `/api/mobile/posts/[id]/shares` | 共有相手を追加 |
 | `PATCH` | `/api/mobile/posts/[id]/shares/[shareId]` | 共有権限を変更 |
 | `DELETE` | `/api/mobile/posts/[id]/shares/[shareId]` | 共有解除 |
+| `GET` | `/api/mobile/notifications` | 自分宛て通知一覧 |
+| `POST` | `/api/mobile/push-subscriptions` | Expo Push Token登録 |
+| `DELETE` | `/api/mobile/push-subscriptions` | Expo Push Token無効化 |
+| `POST` | `/api/mobile/push-subscriptions/test` | テスト通知送信。productionでは `ENABLE_PUSH_TEST_API=true` のときだけ有効 |
 | `POST` | `/api/mobile/ai/generate` | AI生成 |
 | `DELETE` | `/api/mobile/account` | アカウント削除 |
 
@@ -251,7 +257,8 @@ Authorization: Bearer <accessToken>
 - 公開メモ全体の閲覧はWeb版中心で、モバイルAPIは自分のメモと共有メモを返す設計
 - TodoItemはAPIと型のみ対応中。モバイル版の専用画面は未対応で、画面操作はWeb版優先
 - ストア配布は未運用。EAS BuildのAndroid内部配布のみ設定済み
-- カレンダー、リマインダー、画像添付は未実装
+- 共有通知はアプリ内通知レコードと一覧APIまで対応。共有時Push送信は未実装
+- 画像添付は未実装
 - モバイル版の単体テストとE2Eテストは未整備
 
 現在のモバイル向け検証コマンドはTypeScriptの型チェックです。

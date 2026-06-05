@@ -212,6 +212,8 @@ AUTH_TRUST_HOST="true"
 MOBILE_AUTH_SECRET="replace-with-a-long-random-mobile-secret"
 DATABASE_POOL_MAX="5"
 CRON_SECRET="replace-with-a-long-random-cron-secret"
+EXPO_ACCESS_TOKEN="optional-expo-server-access-token"
+ENABLE_PUSH_TEST_API="false"
 
 AUTH_GOOGLE_ID="your-google-client-id"
 AUTH_GOOGLE_SECRET="your-google-client-secret"
@@ -274,6 +276,8 @@ Expo Goまたはシミュレーターで確認します。
 | `MOBILE_AUTH_SECRET` | 推奨 | モバイルBearer Tokenの署名 |
 | `DATABASE_POOL_MAX` | 任意 | PostgreSQL接続プール上限 |
 | `CRON_SECRET` | TodoリマインダーCron利用時 | `/api/cron/*` のheader認証用secret |
+| `EXPO_ACCESS_TOKEN` | 任意 | Expo Push APIのサーバー認証。mobileには置かない |
+| `ENABLE_PUSH_TEST_API` | 任意 | productionで `/api/mobile/push-subscriptions/test` を有効化する場合のみ `true` |
 | `AUTH_GOOGLE_ID` | OAuth利用時 | Google OAuth |
 | `AUTH_GOOGLE_SECRET` | OAuth利用時 | Google OAuth |
 | `AUTH_GITHUB_ID` | OAuth利用時 | GitHub OAuth |
@@ -288,7 +292,9 @@ Expo Goまたはシミュレーターで確認します。
 
 ## TodoリマインダーCron
 
-Todoリマインダー送信は `GET /api/cron/send-todo-reminders` で実行します。`CRON_SECRET` が未設定の場合、Cron処理は実行されず401になります。
+Todoリマインダー送信は `GET /api/cron/send-todo-reminders` で実行します。TodoItemの `reminderAt` が期限到来し、`completed=false` かつ `reminderSentAt=null` のものをExpo Push Token登録済み端末へ送信します。`reminderAt` 未指定で `dueAt` が未来の場合は、作成/更新時に原則として期限1時間前が設定されます。送信後は `reminderSentAt` を更新するため、同じTodoへ重複送信しません。
+
+`CRON_SECRET` が未設定の場合、Cron処理は実行されず401になります。
 
 認証はheaderのみ許可します。
 
@@ -320,6 +326,12 @@ Vercel Cronは `vercel.json` にqueryなしのpathだけを設定します。
 ```
 
 Vercelで `CRON_SECRET` 環境変数を設定すると、Cron実行時に `Authorization: Bearer <CRON_SECRET>` headerとして送られます。
+
+## 通知と共有通知
+
+モバイルアプリはログイン後に通知許可を求め、Expo Push Tokenを `/api/mobile/push-subscriptions` へBearer token付きで登録します。Push Tokenはログイン中ユーザーにだけ紐づき、レスポンスやログにはtoken本体を出しません。ログアウト時は端末で保持しているPush Tokenを同APIのDELETEでrevokeします。
+
+メモ共有時は `PostShare` 作成/更新に合わせて `Notification` レコードを作成します。共有されたユーザーは `/api/mobile/notifications` で自分宛ての通知一覧を取得できます。現時点の共有通知はアプリ内通知の土台で、Push送信はTodoリマインダー側に限定しています。
 
 ## 関連ドキュメント
 

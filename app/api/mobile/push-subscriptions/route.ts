@@ -52,6 +52,30 @@ export async function POST(request: Request) {
   const payload = validatedFields.data;
 
   try {
+    const now = new Date();
+    const existingSubscription = await prisma.pushSubscription.findUnique({
+      where: { expoPushToken: payload.expoPushToken },
+      select: {
+        id: true,
+        revokedAt: true,
+        userId: true,
+      },
+    });
+
+    if (
+      existingSubscription &&
+      existingSubscription.userId !== authUser.id &&
+      !existingSubscription.revokedAt
+    ) {
+      return withMobileCors(
+        request,
+        NextResponse.json(
+          { error: "このPush Tokenは別のユーザーに登録済みです。" },
+          { status: 409 },
+        ),
+      );
+    }
+
     const subscription = await prisma.pushSubscription.upsert({
       create: {
         deviceName: payload.deviceName?.slice(0, 120) ?? null,
@@ -63,6 +87,7 @@ export async function POST(request: Request) {
         deviceName: payload.deviceName?.slice(0, 120) ?? null,
         platform: payload.platform ?? null,
         revokedAt: null,
+        updatedAt: now,
         userId: authUser.id,
       },
       where: { expoPushToken: payload.expoPushToken },

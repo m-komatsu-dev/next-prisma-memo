@@ -2791,7 +2791,9 @@ export default function App() {
     }
 
     try {
-      const result = await registerPushTokenAfterLogin(accessToken);
+      const result = await withAuthRetry((token) =>
+        registerPushTokenAfterLogin(token),
+      );
       if (result.registered) {
         setPushToken(result.token);
         setPushStatusMessage("通知登録済み");
@@ -2800,12 +2802,16 @@ export default function App() {
       } else if (result.reason === "permission-denied") {
         setPushStatusMessage("通知許可がオフです");
       } else {
-        setPushStatusMessage("通知登録に失敗しました");
+        setPushStatusMessage(result.message ?? "通知登録に失敗しました");
       }
-    } catch {
-      setPushStatusMessage("通知登録に失敗しました");
+    } catch (caughtError) {
+      setPushStatusMessage(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "通知登録に失敗しました",
+      );
     }
-  }, [accessToken]);
+  }, [accessToken, withAuthRetry]);
 
   const loadPosts = useCallback(
     async (nextRefreshing = false) => {
@@ -3013,7 +3019,7 @@ export default function App() {
   }, [accessToken, loadPosts]);
 
   const handleLogout = useCallback(async () => {
-    if (accessToken && pushToken) {
+    if (accessToken) {
       await revokeMobilePushSubscription(accessToken, pushToken).catch(() => null);
     }
 

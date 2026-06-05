@@ -4,6 +4,7 @@ import {
   serializeMobilePostShare,
 } from "@/lib/mobile-post-shares";
 import { mobileCorsOptions, withMobileCors } from "@/lib/mobile-cors";
+import { ensurePostShareNotification } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import { logServerError } from "@/lib/server-errors";
 import {
@@ -105,6 +106,8 @@ export async function PATCH(request: Request, { params }: MobilePostShareRouteCo
       if (result.count === 0) {
         return null;
       }
+
+      await ensurePostShareNotification(shareId, authUser.id, tx);
 
       return tx.postShare.findFirst({
         where: { id: shareId, postId },

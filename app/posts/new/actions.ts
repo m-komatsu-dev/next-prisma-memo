@@ -3,6 +3,7 @@
 import { auth } from "@/auth";
 import { buildTagsConnectOrCreate } from "@/lib/post-tags";
 import { prisma } from "@/lib/prisma";
+import { resolveTodoReminderAt } from "@/lib/todo-reminder-schedule";
 import {
   getPublicErrorMessage,
   logServerError,
@@ -175,6 +176,7 @@ export async function createDueTodoListPost(data: unknown) {
           create: payload.items.map((item, index) => ({
             text: item.text,
             dueAt: item.dueAt,
+            reminderAt: resolveTodoReminderAt(item.dueAt, undefined),
             position: index,
           })),
         },
