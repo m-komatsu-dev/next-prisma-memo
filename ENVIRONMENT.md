@@ -1,20 +1,23 @@
-# Environment Variables
+# Environment
 
-This app uses Auth.js, Prisma, PostgreSQL, and Expo. Keep real `.env` files out of Git.
+`.env` は Git に入れません。実値はローカル環境またはホスティング側の環境変数として管理します。
 
 ## Local Web
 
-Create `.env` in the project root:
+プロジェクトルートに `.env` を作成します。
 
 ```env
-DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
+DATABASE_URL="<postgres-connection-url>"
 AUTH_SECRET="replace-with-a-long-random-secret"
 AUTH_URL="http://localhost:3000"
 AUTH_TRUST_HOST="true"
 
 MOBILE_AUTH_SECRET="replace-with-a-long-random-mobile-secret"
+MOBILE_OAUTH_CALLBACK_URL="mymemo://auth/callback"
 DATABASE_POOL_MAX="5"
 CRON_SECRET="replace-with-a-long-random-cron-secret"
+EXPO_ACCESS_TOKEN="optional-expo-server-access-token"
+ENABLE_PUSH_TEST_API="false"
 
 AUTH_GOOGLE_ID="your-local-google-client-id"
 AUTH_GOOGLE_SECRET="your-local-google-client-secret"
@@ -25,28 +28,33 @@ GEMINI_API_KEY="your-gemini-api-key"
 GEMINI_MODEL="gemini-2.5-flash"
 ```
 
-- `AUTH_URL` must be `http://localhost:3000` when running `npm run dev` locally.
-- Do not include `/api/auth` or any path in `AUTH_URL`.
-- `AUTH_SECRET` must stay stable while testing login sessions locally. Changing it invalidates existing Auth.js cookies.
-- `AUTH_TRUST_HOST=true` is required for Auth.js host validation in this setup.
-- Google and GitHub OAuth apps must include these local callback URLs when OAuth login is used:
-  - `http://localhost:3000/api/auth/callback/google`
-  - `http://localhost:3000/api/auth/callback/github`
-- GitHub OAuth Apps have a single callback URL. If production also uses GitHub login, create a separate GitHub OAuth App for local development and put its client ID/secret in local `.env`.
+`AUTH_URL` は origin のみを指定します。ローカルで `npm run dev` を使う場合は `http://localhost:3000` です。`/api/auth` などの path は含めません。
+
+Google / GitHub ログインを使う場合、OAuth provider 側の callback URL は次の形式にします。
+
+```text
+http://localhost:3000/api/auth/callback/google
+http://localhost:3000/api/auth/callback/github
+```
+
+GitHub OAuth App は callback URL を1つしか持てないため、本番でも GitHub ログインを使う場合はローカル用に別の OAuth App を作ります。
 
 ## Production Web
 
-Set environment variables in the hosting provider, not by uploading `.env`:
+本番では `.env` をアップロードせず、ホスティング側に環境変数を設定します。
 
 ```env
-DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
+DATABASE_URL="<postgres-connection-url>"
 AUTH_SECRET="production-long-random-secret"
 AUTH_URL="https://your-production-origin.example"
 AUTH_TRUST_HOST="true"
 
 MOBILE_AUTH_SECRET="production-long-random-mobile-secret"
+MOBILE_OAUTH_CALLBACK_URL="mymemo://auth/callback"
 DATABASE_POOL_MAX="1"
 CRON_SECRET="production-long-random-cron-secret"
+EXPO_ACCESS_TOKEN="optional-expo-server-access-token"
+ENABLE_PUSH_TEST_API="false"
 
 AUTH_GOOGLE_ID="your-production-google-client-id"
 AUTH_GOOGLE_SECRET="your-production-google-client-secret"
@@ -57,39 +65,38 @@ GEMINI_API_KEY="your-gemini-api-key"
 GEMINI_MODEL="gemini-2.5-flash"
 ```
 
-- `AUTH_URL` must be the production origin only, for example `https://memo.example.com`.
-- Do not reuse local `AUTH_SECRET` in production.
-- Set `CRON_SECRET` in the hosting provider when Todo reminder Cron is enabled. Do not put the secret in the Cron URL query string.
-- OAuth provider callback URLs must match the production `AUTH_URL`.
+`AUTH_SECRET` と `MOBILE_AUTH_SECRET` はローカルと本番で分けます。`CRON_SECRET` は URL query に入れず、header で送ります。
 
 ## Cron
 
-Todo reminders run through `GET /api/cron/send-todo-reminders`. Cron authentication only accepts these headers:
+Todo reminder Cron は次の header を受け付けます。
 
 ```text
 Authorization: Bearer <CRON_SECRET>
 x-cron-secret: <CRON_SECRET>
 ```
 
-Do not use `/api/cron/send-todo-reminders?secret=...`. Query secret authentication is intentionally rejected.
+`/api/cron/send-todo-reminders?secret=...` は認証に使いません。
 
 ## Mobile
 
-Create `mobile/.env` when running Expo:
+Expo を動かす場合は `mobile/.env` を作成します。
 
 ```env
 EXPO_PUBLIC_API_BASE_URL=http://localhost:3000
+EXPO_PUBLIC_MOBILE_OAUTH_CALLBACK_URL=mymemo://auth/callback
 ```
 
-Use a LAN URL instead of `localhost` when testing from a physical device that cannot reach the host machine through `localhost`.
+実機からローカルサーバーに接続する場合、`localhost` ではなく PC の LAN IP を使います。
 
-## Auth.js Login Checklist
+`EXPO_PUBLIC_` で始まる値はアプリに埋め込まれます。secret、token、DB URL、API key は mobile 側に置きません。
 
-- `AUTH_URL` matches the browser origin exactly.
-- `AUTH_SECRET` exists and has not changed unexpectedly.
-- `AUTH_TRUST_HOST=true` is present.
-- `DATABASE_URL` points to the database where the registered user exists.
-- Credentials users have a non-null bcrypt hash in `User.password`.
-- OAuth-only users have `User.password = null` and must log in with the original OAuth provider.
-- GitHub local login uses a GitHub OAuth App whose callback URL is exactly `http://localhost:3000/api/auth/callback/github`.
-- Browser cookies for the old origin are cleared after changing `AUTH_URL` or `AUTH_SECRET`.
+## Login Checklist
+
+- `AUTH_URL` がブラウザの origin と一致している。
+- `AUTH_SECRET` が設定され、意図せず変更されていない。
+- `AUTH_TRUST_HOST=true` が設定されている。
+- `DATABASE_URL` が対象の DB を指している。
+- Credentials ユーザーは `User.password` に bcrypt hash を持っている。
+- OAuth のみのユーザーは `User.password = null` で、元の OAuth provider からログインする。
+- `AUTH_URL` や `AUTH_SECRET` を変更した後は、古い origin の cookie を削除する。
