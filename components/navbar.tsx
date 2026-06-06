@@ -15,6 +15,23 @@ export default async function Navbar() {
       })
     : 0;
 
+  async function signOutAction() {
+    "use server";
+    try {
+      await signOut({ redirectTo: "/" });
+    } catch (error) {
+      if (isRedirectError(error)) {
+        throw error;
+      }
+
+      logServerError(error, {
+        action: "navbarSignOut",
+        userId: session?.user?.id,
+      });
+      throw new Error("ログアウト処理に失敗しました。");
+    }
+  }
+
   return (
     <header className="site-header">
       <nav className="site-nav" aria-label="メインナビゲーション">
@@ -43,24 +60,7 @@ export default async function Navbar() {
               <Link href="/account">アカウント</Link>
               <div className="nav-account">
                 <span>{session.user?.name ?? "ユーザー"}</span>
-                <form
-                  action={async () => {
-                    "use server";
-                    try {
-                      await signOut({ redirectTo: "/" });
-                    } catch (error) {
-                      if (isRedirectError(error)) {
-                        throw error;
-                      }
-
-                      logServerError(error, {
-                        action: "navbarSignOut",
-                        userId: session.user?.id,
-                      });
-                      throw new Error("ログアウト処理に失敗しました。");
-                    }
-                  }}
-                >
+                <form action={signOutAction}>
                   <button className="nav-button" type="submit">
                     ログアウト
                   </button>
@@ -76,6 +76,49 @@ export default async function Navbar() {
             </>
           )}
         </div>
+
+        <details className="mobile-menu">
+          <summary className="mobile-menu__button" aria-label="メニューを開く">
+            <span className="mobile-menu__bars" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+            <span>メニュー</span>
+          </summary>
+
+          <div className="mobile-menu__panel">
+            {session ? (
+              <>
+                <div className="mobile-menu__user">{session.user?.name ?? "ユーザー"}</div>
+                <Link href="/posts">メモ一覧</Link>
+                <Link href="/todos">Todo一覧</Link>
+                <Link href="/todos/calendar">カレンダー</Link>
+                <Link href="/posts?filter=shared">共有メモ</Link>
+                <Link href="/notifications" className="mobile-menu__notification-link">
+                  <span>通知</span>
+                  {unreadNotificationCount > 0 ? (
+                    <span className="nav-notification-badge">
+                      {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
+                    </span>
+                  ) : null}
+                </Link>
+                <Link href="/posts/new">新規作成</Link>
+                <Link href="/account">アカウント</Link>
+                <form action={signOutAction}>
+                  <button className="mobile-menu__logout" type="submit">
+                    ログアウト
+                  </button>
+                </form>
+              </>
+            ) : (
+              <>
+                <Link href="/">ログイン</Link>
+                <Link href="/register">新規登録</Link>
+              </>
+            )}
+          </div>
+        </details>
       </nav>
     </header>
   );
