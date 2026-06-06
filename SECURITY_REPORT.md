@@ -1,6 +1,13 @@
 # SECURITY_REPORT
 
 作成日: 2026-06-04
+最終整理日: 2026-06-06
+
+## 要約
+
+このアプリでは、Web版のAuth.jsセッションとモバイル版のBearer Token認証を分けて実装し、同じPostgreSQL上のメモ、Todo、共有、通知をサーバー側認可で保護しています。
+
+主な対策は、Zod入力検証、bcrypt、refresh token rotation、refresh token family revocation、rate limit、CSP Report-Only、Cron header認証、ログredaction、CORS origin制御、基本セキュリティヘッダーです。secret、token、DB URL、個人情報はレポートやログへ出さない方針です。
 
 ## 見つけた問題
 
@@ -77,6 +84,25 @@
   - サーバーログから token / DB URL が redaction されることを追加確認しました。
   - Cron が正しい `Authorization` header と `x-cron-secret` header でのみ成功し、secret なし、誤った secret、query secret のみ、`CRON_SECRET` 未設定時は 401 になることを確認しました。
 
+## 追加で実装済みの対策
+
+- Rate limit
+  - Credentials login、Auth.js Credentials provider、mobile login、mobile refresh、mobile AI generation、Web AI generation、CSP report APIにrate limitを追加しています。
+  - email、IP、refresh token、user IDなどのrate limit keyはハッシュ化して扱います。
+  - 制限超過時は429を返し、レスポンスやログにtoken、secret、DB情報を含めません。
+  - 詳細は [RATE_LIMIT_REPORT.md](./RATE_LIMIT_REPORT.md) にまとめています。
+
+- CSP Report-Only
+  - 全ページ/APIに `Content-Security-Policy-Report-Only` を追加済みです。
+  - 強制ブロックはまだ有効化せず、本番/previewのviolationを確認してから段階的に切り替える方針です。
+  - `/api/csp-report` は入力形式、本文サイズ、rate limit、ログredactionを実装しています。
+  - 詳細は [CSP_REPORT.md](./CSP_REPORT.md) にまとめています。
+
+- 通知・Push Token
+  - Expo Push Token登録APIは認証必須です。
+  - activeな他ユーザーのPush Token上書き登録を拒否し、DELETEもログイン中ユーザーのtokenだけをrevokeします。
+  - TodoリマインダーPush送信はCron header認証で保護し、共有通知はアプリ内通知として扱います。
+
 ## 確認した認可・入力検証の状況
 
 - Web のメモ削除・公開切替は `authorId` 条件付きの `deleteMany` / `updateMany` で保護されています。
@@ -89,9 +115,6 @@
 
 ## 修正しなかったが今後やるべき問題
 
-- Rate limit / brute force 対策
-  - Credentials login、mobile login、AI API、refresh API に IP・ユーザー単位の rate limit を追加するとより安全です。
-
 - CSRF の追加防御
   - Server Actions と Auth.js の基本防御に依存しています。高リスク操作には intent token や再認証を追加するとさらに堅くできます。
 
@@ -100,6 +123,9 @@
 
 - CSP
   - `Content-Security-Policy-Report-Only` を段階導入しました。強制ブロックはまだ有効化していません。内容と移行手順は `CSP_REPORT.md` にまとめています。
+
+- Rate limit の外部ストア化
+  - 現在のrate limitはメモリベースです。Vercelのサーバーレス環境ではインスタンスごとにカウンタが分かれるため、本番でより強い防御にする場合はUpstash Redisなどの外部ストアへ移行します。
 
 - DB Row Level Security
   - Prisma 側の認可チェックで保護しています。PostgreSQL RLS を導入すると防御層は増えますが、設計・運用変更が大きいため未対応です。
@@ -119,7 +145,7 @@
   - 実 env は ignore、example は追跡可能であることを確認しました。
 
 - `npm run test`
-  - 14 files / 92 tests passed.
+  - 22 files / 140 tests passed.
 
 - `npm run lint`
   - passed.
@@ -134,6 +160,14 @@
 - `npm audit --audit-level=high`
   - 初回はネットワーク制限で失敗。ネットワーク許可後に再実行し、`found 0 vulnerabilities`。
 
+- `cd mobile && npm install && npx expo-doctor`
+  - `npm install` は `up to date`。
+  - `npx expo-doctor` は初回ネットワーク制限で失敗。ネットワーク許可後に再実行し、18/18 checks passed.
+
+- `cd mobile && npm audit`
+  - Expo依存由来のmoderate warningを確認しました。
+  - `npm audit fix --force` はExpoのbreaking changeを伴うため、別ブランチで検証予定です。
+
 ## 残っているリスク
 
 - `published` なメモは Web 側でログインユーザーに読める設計です。ポートフォリオで「完全な個人メモ」を強調するなら、公開機能の意味を明確にするか無効化を検討してください。
@@ -143,8 +177,9 @@
 
 ## 次にやるべき改善案
 
-1. mobile login / credentials login / AI API に rate limit を追加する。
-2. refresh token reuse detection の監査ログを本番のログ基盤でアラート化する。
+1. refresh token reuse detection の監査ログを本番のログ基盤でアラート化する。
+2. rate limit を本番向けに外部ストア化する。
 3. タグをユーザー所有モデルにするか、タグ API を追加する場合は必ず `userId` スコープにする。
 4. 本番・previewのCSPレポートを確認し、問題がなければ `Content-Security-Policy` へ切り替える。
 5. 重要操作に再認証または確認用 nonce を追加する。
+6. mobile側npm audit moderate warningを別ブランチで検証し、Expo更新の影響を確認する。

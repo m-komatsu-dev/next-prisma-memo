@@ -2,6 +2,12 @@
 
 作成日: 2026-06-06
 
+## 要約
+
+既存のログイン、Google/GitHub OAuth、モバイルOAuth、通知、検索、AI生成、mobile APIを壊さずにCSPを導入するため、まず `Content-Security-Policy-Report-Only` を全ページ/APIへ追加しました。強制ブロックはまだ有効化していません。
+
+レポート受信API `/api/csp-report` には、入力形式チェック、本文サイズ制限、rate limit、ログredactionを入れています。CSP violationの生URL、query、token、cookie、Authorization header、個人情報になり得る値はログに出さない方針です。
+
 ## 今回追加したCSP
 
 全ページ/APIに `Content-Security-Policy-Report-Only` を追加しました。`Content-Security-Policy` による強制ブロックはまだ有効化していません。
@@ -60,6 +66,8 @@ report-uri /api/csp-report
 - `/api/csp-report` が大きすぎる本文を 413 で拒否すること。
 - `/api/csp-report` に rate limit があり、超過時に 429 と rate limit headers を返すこと。
 - CSPレポートログに token、Bearer文字列、メールアドレス、外部URLの生hostを出さないこと。
+- 既存のメモCRUD、Todo作成、ログイン、ログアウトのE2EがReport-Only追加後も通ること。
+- production buildに `/api/csp-report`、`/api/mobile/oauth/start`、`/api/mobile/oauth/exchange`、`/api/mobile/notifications`、`/api/mobile/push-subscriptions` が含まれること。
 
 ## 実行した確認コマンド
 
@@ -76,6 +84,9 @@ report-uri /api/csp-report
 - `cd mobile && npm install && npx expo-doctor`
   - `npm install` は `up to date`.
   - `npx expo-doctor` は初回ネットワーク制限で失敗。ネットワーク許可後に再実行し、18/18 checks passed.
+- `cd mobile && npm audit`
+  - Expo依存由来のmoderate warningあり。
+  - `npm audit fix --force` はExpoのbreaking changeを伴うため、別ブランチで検証予定です。
 
 ## 未確認項目
 
@@ -83,6 +94,7 @@ report-uri /api/csp-report
 - Googleログイン、GitHubログイン、モバイルOAuthの実機ブラウザ遷移で追加許可が必要かどうか。
 - Vercel Analytics / Speed Insights が本番プロジェクト固有設定で追加の `connect-src` を必要とするかどうか。
 - 通知、共有通知、検索、AI生成、既存mobile API、PushSubscription処理の本番相当E2Eでの violation の有無。
+- EAS Build無料枠の都合により、production buildのiOS/Android実機でのモバイルOAuthとPush通知の最終確認。
 
 ## 将来 Content-Security-Policy に切り替える手順
 
