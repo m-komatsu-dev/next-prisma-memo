@@ -59,6 +59,11 @@ export const AI_USER_RATE_LIMIT = {
   windowMs: 60 * 1000,
 } satisfies RateLimitConfig;
 
+export const CSP_REPORT_IP_RATE_LIMIT = {
+  max: 30,
+  windowMs: 60 * 1000,
+} satisfies RateLimitConfig;
+
 export function getClientIp(request: Request) {
   const forwardedFor = request.headers.get("x-forwarded-for");
   const forwardedIp = forwardedFor?.split(",")[0]?.trim();

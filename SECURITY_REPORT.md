@@ -99,7 +99,7 @@
   - 現在 `Tag` はグローバル unique name です。現状 API は認可済み Post 経由でしかタグを返さないため直接漏洩は見つけていませんが、タグ自体を個人データとして厳密に扱うなら `userId` を持たせる設計変更が望ましいです。
 
 - CSP
-  - Content-Security-Policy は導入していません。Next.js、Auth.js OAuth、Vercel Analytics、Gemini 連携への影響確認が必要なため、今回は基本ヘッダーに留めました。
+  - `Content-Security-Policy-Report-Only` を段階導入しました。強制ブロックはまだ有効化していません。内容と移行手順は `CSP_REPORT.md` にまとめています。
 
 - DB Row Level Security
   - Prisma 側の認可チェックで保護しています。PostgreSQL RLS を導入すると防御層は増えますが、設計・運用変更が大きいため未対応です。
@@ -146,5 +146,5 @@
 1. mobile login / credentials login / AI API に rate limit を追加する。
 2. refresh token reuse detection の監査ログを本番のログ基盤でアラート化する。
 3. タグをユーザー所有モデルにするか、タグ API を追加する場合は必ず `userId` スコープにする。
-4. 本番ドメイン確定後、CSP を report-only から段階導入する。
+4. 本番・previewのCSPレポートを確認し、問題がなければ `Content-Security-Policy` へ切り替える。
 5. 重要操作に再認証または確認用 nonce を追加する。
