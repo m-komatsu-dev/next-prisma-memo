@@ -37,6 +37,10 @@ type ToggleState = {
   success: boolean;
 };
 
+const allTodosFilterOptions = todoItemFilterOptions.filter(
+  (option) => option.value !== "noDue",
+);
+
 function buildToggleFormData(todo: CrossMemoTodo) {
   const formData = new FormData();
   formData.set("completed", todo.completed ? "false" : "true");
@@ -123,7 +127,7 @@ export default function AllTodosClient({
       </div>
 
       <div className="todo-items__filters all-todos__filters" aria-label="Todoの絞り込み">
-        {todoItemFilterOptions.map((option) => (
+        {allTodosFilterOptions.map((option) => (
           <button
             key={option.value}
             type="button"

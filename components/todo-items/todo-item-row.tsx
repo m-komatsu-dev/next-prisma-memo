@@ -137,6 +137,7 @@ export function TodoItemRow({
         "todo-items__row",
         todoItem.completed ? "todo-items__row--completed" : "",
         isOverdue ? "todo-items__row--overdue" : "",
+        isEditing ? "todo-items__row--editing" : "",
       ]
         .filter(Boolean)
         .join(" ")}

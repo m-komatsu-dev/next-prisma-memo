@@ -51,7 +51,7 @@ export default function PostForm({
   });
   const isTodoCreation = mode === "new" && creationKind === "todo";
   const isDueTodoPost = isTodoCreation || initialPost?.kind === "dueTodo";
-  const shouldShowTodoItemsPanel = isDueTodoPost || mode === "edit";
+  const shouldShowTodoItemsPanel = isDueTodoPost;
 
   return (
     <form action={handleSubmit} className="post-editor" noValidate>
